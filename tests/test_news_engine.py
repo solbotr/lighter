@@ -5,7 +5,8 @@ from lighter.news import NewsEngine, NewsEvent
 
 def test_news_engine_rejects_rumor():
     event = NewsEvent("trusted", "Rumor: protocol launches", datetime.now(timezone.utc), source_score=0.95, metadata={"rumor": "true"})
-    assert NewsEngine().assess(event) is None or not NewsEngine().assess(event).tradable
+    assessment = NewsEngine().assess(event)
+    assert assessment is None or not assessment.tradable
 
 
 def test_news_engine_dedupes():
