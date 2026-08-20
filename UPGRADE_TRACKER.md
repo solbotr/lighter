@@ -1,115 +1,117 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–5: upgrades 1–500
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, and operational controls.
+## Tranches 1–6: upgrades 1–600
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, and execution controls.
 
-## Tranche 6: upgrades 501–600
+## Tranche 7: upgrades 601–700
 
-### Security and secrets
-501. Secret source abstraction
-502. Environment-secret validation
-503. Secret redaction in logs
-504. Secret redaction in exceptions
-505. Secret redaction in traces
-506. Secret redaction in metrics
-507. API-key format validation
-508. Private-key format validation
-509. Credential separation
-510. Read-only credential mode
-511. Trading credential mode
-512. Withdrawal-permission audit
-513. Credential rotation procedure
-514. Credential age tracking
-515. Credential exposure response
-516. Least-privilege configuration
-517. Production dependency pinning
-518. Dependency lockfile validation
-519. Dependency inventory
-520. SBOM generation requirement
-521. Dependency vulnerability scan
-522. Static security scan
-523. Secret-scanning CI gate
-524. Unsafe-config CI gate
-525. Debug-mode production guard
-526. Insecure-TLS configuration guard
-527. TLS certificate validation
-528. Request timeout enforcement
-529. Retry-bound enforcement
-530. Retry-jitter enforcement
-531. Malformed-response quarantine
-532. Oversized-response rejection
-533. Unexpected-content-type rejection
-534. Input-schema validation
-535. Output-schema validation
-536. External-input sanitization
-537. URL normalization guard
-538. SSRF-safe source policy
-539. Outbound-host allowlist
-540. Network-egress policy
+### Advanced news intelligence
+601. Multi-feed ingestion coordinator
+602. Feed priority policy
+603. Source latency ranking
+604. Source reliability score
+605. Source historical accuracy score
+606. Source independence score
+607. Publisher identity graph
+608. Author identity graph
+609. Primary-source detection
+610. Secondary-source detection
+611. Syndication-chain detection
+612. Quote-origin extraction
+613. Claim extraction
+614. Claim normalization
+615. Claim confidence
+616. Claim evidence links
+617. Fact/opinion classifier
+618. Announcement/rumor classifier
+619. New/repeated-information classifier
+620. Materiality classifier
+621. Novelty classifier
+622. Temporal-reference resolver
+623. Relative-time normalization
+624. Entity co-reference resolution
+625. Pronoun/entity resolution
+626. Asset co-mention graph
+627. Direct-impact classifier
+628. Indirect-impact classifier
+629. Narrative-spillover classifier
+630. Positive-language/economic-impact separation
+631. Bullish-impact classifier
+632. Bearish-impact classifier
+633. Neutral-impact classifier
+634. Ambiguous-impact classifier
+635. Multi-asset impact ranking
+636. Event dependency graph
+637. Event predecessor tracking
+638. Event successor tracking
+639. Event supersession detection
+640. Event invalidation propagation
 
-### Execution security
-541. Live-order explicit capability gate
-542. Separate live credential gate
-543. Pre-submit risk gate
-544. Pre-submit account gate
-545. Pre-submit market gate
-546. Pre-submit freshness gate
-547. Pre-submit idempotency gate
-548. Symbol allowlist
-549. Side validation
-550. Quantity validation
-551. Price validation
-552. Notional validation
-553. Leverage validation
-554. Reduce-only validation
-555. Order-type validation
-556. Time-in-force validation
-557. Client-order-ID uniqueness
-558. Client-order-ID persistence
-559. Ambiguous-submit quarantine
-560. No-blind-retry rule
-561. Exchange-state reconciliation before retry
-562. Order acknowledgement validation
-563. Fill validation
-564. Fill-price sanity check
-565. Fill-size sanity check
-566. Position-direction sanity check
-567. Position-size sanity check
-568. Margin sanity check
-569. Balance sanity check
-570. Exposure sanity check
-571. Duplicate-fill rejection
-572. Duplicate-order rejection
-573. Unknown-order quarantine
-574. Unknown-fill quarantine
-575. Cancel acknowledgement validation
-576. Replace acknowledgement validation
-577. Order lifecycle timeout
-578. Stuck-order detector
-579. Emergency cancellation gate
-580. Emergency flatten authorization gate
+### News manipulation and quality controls
+641. Headline sensationalism detector
+642. Emotional-language penalty
+643. ALL-CAPS penalty
+644. Engagement-bait penalty
+645. Clickbait pattern detector
+646. Bot-amplification flag
+647. Coordinated-post flag
+648. Social-copy cluster detector
+649. Repeated-post suppression
+650. Screenshot-evidence downgrade
+651. Unverified-source downgrade
+652. Anonymous-source downgrade
+653. Single-source critical-event veto
+654. Contradictory-source veto
+655. Retraction propagation
+656. Correction propagation
+657. Article-edit detection
+658. Timestamp anomaly detection
+659. Future-timestamp rejection
+660. Impossible chronology rejection
 
-### Data and incident security
-581. Untrusted-news boundary
-582. Raw-headline execution prohibition
-583. Source provenance requirement
-584. Source transformation audit
-585. Timestamp validation
-586. Content encoding validation
-587. Content-size limit
-588. Contradictory-critical-data veto
-589. Unverifiable-critical-data veto
-590. Feed compromise flag
-591. Source spoofing detection interface
-592. Domain ownership metadata
-593. Publisher identity validation
-594. Certificate/transport anomaly logging
-595. Dependency failure isolation
-596. Security incident state
-597. Trading-disable-on-incident gate
-598. Evidence preservation hook
-599. Credential-rotation incident hook
-600. Post-incident review record
+### Event reaction and signal governance
+661. Event reaction baseline freeze
+662. Pre-event contamination detector
+663. Market-wide confounder detector
+664. BTC confounder detector
+665. ETH confounder detector
+666. Sector confounder detector
+667. Concurrent-news detector
+668. Concurrent-event clustering
+669. Reaction attribution confidence
+670. Event-driven return isolation
+671. Event-driven volume isolation
+672. Event-driven volatility isolation
+673. Reaction persistence threshold
+674. Reaction exhaustion threshold
+675. Sell-the-news detector
+676. Buy-the-rumor detector
+677. Delayed-reaction detector
+678. Overreaction detector
+679. Underreaction detector
+680. Gap-and-fade detector
+681. Breakout-and-hold detector
+682. Failed-breakout detector
+683. Mean-reversion confirmation
+684. Trend-continuation confirmation
+685. Signal expiry policy
+686. Signal versioning
+687. Signal supersession
+688. Signal invalidation
+689. Signal audit trail
+690. Signal explanation payload
+
+### Strategy evaluation and governance
+691. News-quality scorecard
+692. Source-quality scorecard
+693. Event-type scorecard
+694. Asset scorecard
+695. Market-regime scorecard
+696. Latency scorecard
+697. Slippage scorecard
+698. Paper-vs-shadow comparison
+699. Promotion gate checklist
+700. Operator approval gate
 
 ## Safety invariant
-Security controls are defense-in-depth. No external input, credential, classifier, or strategy signal may bypass execution, risk, or reconciliation gates. Live execution remains explicitly opt-in.
+News intelligence can enrich a signal but cannot directly authorize an order. Critical or contradictory information must fail closed, and live promotion always requires an explicit operator-controlled gate.
