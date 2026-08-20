@@ -42,4 +42,4 @@ class RiskGate:
         notional = min(self.limits.max_position_notional, remaining)
         if notional <= 0:
             failures.append("exposure_limit")
-        return RiskDecision(not approved=bool(failures) is False, reasons=tuple(failures), max_notional=notional)
+        return RiskDecision(approved=not failures, reasons=tuple(failures), max_notional=notional)

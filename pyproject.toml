@@ -1,17 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "lighter-news-trader"
 version = "0.1.0"
 description = "News-driven crypto trading research and risk engine for Lighter"
 requires-python = ">=3.10"
 dependencies = [
-  "lighter-sdk @ git+https://github.com/elliottech/lighter-python.git",
   "pydantic>=2",
   "httpx>=0.27",
   "feedparser>=6.0",
 ]
 
+[project.scripts]
+lighter-paper = "lighter_trader.cli:main"
+
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-asyncio>=0.23"]
+live = ["lighter-sdk==1.1.2"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

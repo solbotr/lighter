@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from lighter.lighter_auth import LighterAuthError, LighterCredentials
+from lighter_trader.lighter_auth import LighterAuthError, LighterCredentials
 
 
 def test_missing_credentials_fail_closed(monkeypatch):

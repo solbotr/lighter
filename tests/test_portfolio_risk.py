@@ -1,4 +1,4 @@
-from lighter.risk.portfolio import PortfolioLimits, check_portfolio
+from lighter_trader.risk.portfolio import PortfolioLimits, check_portfolio
 
 
 def test_portfolio_rejects_excessive_asset_concentration():

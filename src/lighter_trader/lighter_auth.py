@@ -23,10 +23,14 @@ class LighterCredentials:
 
     @classmethod
     def from_env(cls) -> "LighterCredentials":
-        base_url = os.getenv("LIGHTER_BASE_URL", "https://mainnet.zklighter.elliot.ai").rstrip("/")
+        base_url = os.getenv("LIGHTER_BASE_URL", "https://testnet.zklighter.elliot.ai").rstrip("/")
         account_raw = os.getenv("LIGHTER_ACCOUNT_INDEX")
         key_index_raw = os.getenv("LIGHTER_API_KEY_INDEX")
-        private_key = os.getenv("LIGHTER_API_KEY_PRIVATE_KEY")
+        private_key = os.getenv("LIGHTER_API_PRIVATE_KEY")
+        legacy_private_key = os.getenv("LIGHTER_API_KEY_PRIVATE_KEY")
+        if private_key and legacy_private_key and private_key != legacy_private_key:
+            raise LighterAuthError("conflicting Lighter private-key environment variables")
+        private_key = private_key or legacy_private_key
 
         if not account_raw or not key_index_raw or not private_key:
             raise LighterAuthError(

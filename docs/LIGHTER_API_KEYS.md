@@ -9,8 +9,12 @@ Set:
 - `LIGHTER_BASE_URL` — mainnet is `https://mainnet.zklighter.elliot.ai`.
 - `LIGHTER_ACCOUNT_INDEX` — the Lighter internal account index.
 - `LIGHTER_API_KEY_INDEX` — the programmatic API-key index.
-- `LIGHTER_API_KEY_PRIVATE_KEY` — the API key's private signing key.
-- `LIGHTER_LIVE_TRADING=false` until all readiness gates are explicitly approved.
+- `LIGHTER_API_PRIVATE_KEY` — the API key's private signing key. The legacy `LIGHTER_API_KEY_PRIVATE_KEY` name is accepted only as an alias.
+- `LIGHTER_LIVE_TRADING=false` until all readiness gates are explicitly approved. Accepted boolean forms are `true/false`, `1/0`, and `yes/no`.
+
+The live dependency is pinned to `lighter-sdk==1.1.2`. Startup compatibility checks verify the SDK classes and method signatures before any live readiness is considered. Credentials never enable live trading by themselves.
+
+The final transaction transmission boundary remains manually gated and disabled in the repository. Signing/request-construction tests do not call `send_tx` and do not contact Lighter.
 
 ## Authentication model
 

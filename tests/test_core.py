@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from lighter.news.dedupe import DedupeIndex
-from lighter.news.models import NewsEvent
-from lighter.risk.gates import AccountState, RiskLimits, allow_trade
-from lighter.signals.scoring import score_event
-from lighter.execution.paper import OrderIntent, PaperExecutor
+from lighter_trader.news.dedupe import DedupeIndex
+from lighter_trader.news.models import NewsEvent
+from lighter_trader.risk.gates import AccountState, RiskLimits, allow_trade
+from lighter_trader.signals.scoring import score_event
+from lighter_trader.execution.paper import OrderIntent, PaperExecutor
 
 
 def event(title="President mentions protocol"):

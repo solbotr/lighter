@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import exp
 
-from lighter.news.models import NewsEvent
+from lighter_trader.news.models import NewsEvent
 
 
 @dataclass(frozen=True)

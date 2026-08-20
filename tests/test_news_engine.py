@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from lighter.news import NewsEngine, NewsEvent
+from lighter_trader.news import NewsEngine, NewsEvent
 
 
 def test_news_engine_rejects_rumor():
