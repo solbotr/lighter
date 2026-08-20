@@ -1,119 +1,113 @@
 # Lighter — Upgrade Program
 
-## Tranche 1: upgrades 1–100
-Baseline hardening: news normalization, deduplication, entity detection, Lighter market-data interfaces, signal gates, risk limits, and execution safety.
-
-## Tranche 2: upgrades 101–200
-Multi-source news intelligence, feed health, source provenance, event clustering, entity/market mapping, and event classifiers.
-
-## Tranche 3: upgrades 201–300
-Market microstructure, event reaction measurement, feature quality and deterministic signal fingerprints.
+## Tranches 1–3: upgrades 1–300
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, event reaction measurement, and signal-quality controls.
 
 ## Tranche 4: upgrades 301–400
 
-### Backtesting and research
-301. Event replay clock
-302. Deterministic replay mode
-303. Historical news schema
-304. Historical market-data schema
-305. Point-in-time entity mapping
-306. Point-in-time source scores
-307. Point-in-time market metadata
-308. Look-ahead-bias detector
-309. Survivorship-bias guard
-310. Delisted-market handling
-311. Missing-data accounting
-312. Gap-aware replay
-313. Feed-latency simulation
-314. Execution-latency simulation
-315. Order-book snapshot replay
-316. Trade-tape replay
-317. Slippage simulation
-318. Fee simulation
-319. Funding simulation
-320. Borrow/carry cost interface
-321. Partial-fill simulation
-322. Cancel/replace simulation
-323. Rejected-order simulation
-324. Network-failure simulation
-325. Exchange-outage simulation
-326. Signal-expiry replay
-327. Risk-limit replay
-328. Kill-switch replay
-329. Daily-reset replay
-330. Position-state reconstruction
-331. Balance-state reconstruction
-332. PnL reconstruction
-333. Realized/unrealized PnL separation
-334. Mark-price policy
-335. Benchmark-return calculation
-336. Event-window attribution
-337. Trade attribution
-338. Signal attribution
-339. Source attribution
-340. Strategy attribution
-341. Fee-adjusted return
-342. Slippage-adjusted return
-343. Risk-adjusted return
-344. Maximum drawdown
-345. Calmar ratio
-346. Sharpe-like metric
-347. Sortino-like metric
-348. Profit factor
-349. Expectancy
-350. Win-rate confidence interval
+### Backtesting integrity
+301. Event-time replay clock
+302. Point-in-time news store
+303. Point-in-time market store
+304. Look-ahead-bias guard
+305. Future-data access assertion
+306. Survivorship-bias guard
+307. Delisted-market retention
+308. Symbol-history mapping
+309. Historical alias versioning
+310. Historical source availability tracking
+311. News-ingestion latency replay
+312. Market-data latency replay
+313. Execution-latency replay
+314. Network-delay model
+315. Jitter model
+316. Order acknowledgement delay model
+317. Partial-fill simulation
+318. Reject simulation
+319. Cancel simulation
+320. Cancel/replace simulation
+321. Fee model
+322. Maker/taker fee model
+323. Funding-cost model
+324. Borrow-cost model interface
+325. Slippage model
+326. Spread-cost model
+327. Market-impact model
+328. Liquidity depletion model
+329. Price-gap simulation
+330. Flash-move simulation
+331. Exchange-outage simulation
+332. Feed-outage simulation
+333. Stale-price simulation
+334. Stale-news simulation
+335. Duplicate-news replay
+336. Contradictory-news replay
+337. Rumor replay
+338. Retraction replay
+339. Correction replay
+340. Delayed-source replay
 
-### Validation and robustness
-351. Walk-forward splits
-352. Purged time-series splits
-353. Embargo periods
-354. Parameter-free baseline
-355. Buy-and-hold benchmark
-356. Event-naive benchmark
-357. Random-entry benchmark
-358. Source-ablation test
-359. Feature-ablation test
-360. Market-ablation test
-361. Latency-ablation test
-362. Slippage-ablation test
-363. Fee-ablation test
-364. Risk-limit-ablation test
-365. Threshold sensitivity sweep
-366. Freshness sensitivity sweep
-367. Source-weight sensitivity sweep
-368. Market-confirmation sensitivity sweep
-369. Already-priced-in sensitivity sweep
-370. Position-size sensitivity sweep
-371. Leverage sensitivity sweep
-372. Stop-policy sensitivity sweep
-373. Take-profit sensitivity sweep
-374. Cooldown sensitivity sweep
-375. Holding-period sensitivity sweep
-376. Regime sensitivity sweep
-377. Monte Carlo trade-order shuffle
-378. Bootstrap return confidence
-379. Bootstrap drawdown confidence
-380. Worst-case slippage scenario
-381. Worst-case latency scenario
-382. Feed-outage scenario
-383. Duplicate-news scenario
-384. Contradictory-news scenario
-385. Rumor scenario
-386. Retraction scenario
-387. Correction scenario
-388. Market-crash scenario
-389. Flash-move scenario
-390. Low-liquidity scenario
-391. High-volatility scenario
-392. Correlated-position scenario
-393. API-error scenario
-394. Clock-skew scenario
-395. Restart-recovery scenario
-396. State-corruption scenario
-397. Partial-data scenario
-398. Unknown-event scenario
-399. Out-of-distribution-event scenario
-400. Research reproducibility manifest
+### Statistical validation
+341. Trade-level PnL attribution
+342. Event-level PnL attribution
+343. Source-level PnL attribution
+344. Asset-level PnL attribution
+345. Direction-level attribution
+346. Holding-time attribution
+347. Entry-latency attribution
+348. Exit-latency attribution
+349. Slippage attribution
+350. Fee attribution
+351. Funding attribution
+352. Gross-return metric
+353. Net-return metric
+354. Expectancy metric
+355. Profit-factor metric
+356. Sharpe metric
+357. Sortino metric
+358. Calmar metric
+359. Maximum-drawdown metric
+360. Recovery-factor metric
+361. Win-rate metric
+362. Loss-streak metric
+363. Tail-loss metric
+364. Tail-gain metric
+365. Value-at-risk interface
+366. Expected-shortfall interface
+367. Bootstrap confidence interval
+368. Monte-Carlo trade-order test
+369. Parameter sensitivity sweep
+370. Threshold sensitivity sweep
+371. Latency sensitivity sweep
+372. Slippage sensitivity sweep
+373. Fee sensitivity sweep
+374. News-quality sensitivity sweep
+375. Source-ablation test
+376. Feature-ablation test
+377. Signal-component ablation
+378. Randomized-label sanity test
+379. No-news baseline
+380. Price-only baseline
+381. Sentiment-only baseline
+382. Momentum-only baseline
+383. Buy-and-hold benchmark
+384. Random-entry benchmark
+385. Market-beta benchmark
+386. Out-of-sample holdout
+387. Walk-forward split
+388. Purged time-series split
+389. Embargo window
+390. Regime-stratified validation
+391. Bull-market validation
+392. Bear-market validation
+393. Sideways-market validation
+394. High-volatility validation
+395. Low-volatility validation
+396. High-liquidity validation
+397. Low-liquidity validation
+398. Out-of-distribution event test
+399. Reproducibility manifest
+400. Backtest result checksum
 
 ## Safety invariant
-Tranche 4 improves research integrity and prevents backtests from overstating an edge. Historical results must include realistic latency, fees, slippage, missing data, and risk constraints. Live execution remains opt-in.
+Backtesting must never create live orders. Historical results are evidence for evaluation, not permission to trade live.
