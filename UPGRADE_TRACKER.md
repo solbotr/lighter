@@ -1,113 +1,115 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–4: upgrades 1–400
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, event reaction measurement, signal quality, and research/backtesting integrity.
+## Tranches 1–5: upgrades 1–500
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, and operational controls.
 
-## Tranche 5: upgrades 401–500
+## Tranche 6: upgrades 501–600
 
-### Runtime and reliability
-401. Explicit research mode
-402. Explicit paper mode
-403. Explicit shadow mode
-404. Explicit live mode
-405. Live-mode fail-closed default
-406. Credential-presence does not enable live mode
-407. Startup configuration validation
-408. Configuration schema version
-409. Configuration checksum
-410. Environment validation
-411. Required-secret validation
-412. Secret-format validation
-413. Secret-redaction layer
-414. Structured JSON logging
-415. Log-level configuration
-416. Correlation-ID propagation
-417. Event-ID propagation
-418. Signal-ID propagation
-419. Order-ID propagation
-420. Execution-ID propagation
-421. UTC timestamp normalization
-422. Monotonic latency clock
-423. Wall-clock sanity check
-424. Clock-drift alert
-425. Dependency health registry
-426. Lighter API health check
-427. Lighter WebSocket health check
-428. News-source health registry
-429. Market-data freshness monitor
-430. Account-state freshness monitor
-431. Heartbeat watchdog
-432. Event-loop stall detector
-433. Memory-pressure monitor
-434. CPU-pressure monitor
-435. Disk-space monitor
-436. File-descriptor monitor
-437. Connection-count monitor
-438. Queue-depth monitor
-439. Processing-lag monitor
-440. Backpressure mechanism
-441. Bounded event queues
-442. Bounded retry queues
-443. Dead-letter queue
-444. Poison-message quarantine
-445. Graceful shutdown handler
-446. Signal-drain shutdown
-447. Order-drain shutdown
-448. Cancellation-on-emergency shutdown
-449. Persistent state checkpoint
-450. Checkpoint checksum
+### Security and secrets
+501. Secret source abstraction
+502. Environment-secret validation
+503. Secret redaction in logs
+504. Secret redaction in exceptions
+505. Secret redaction in traces
+506. Secret redaction in metrics
+507. API-key format validation
+508. Private-key format validation
+509. Credential separation
+510. Read-only credential mode
+511. Trading credential mode
+512. Withdrawal-permission audit
+513. Credential rotation procedure
+514. Credential age tracking
+515. Credential exposure response
+516. Least-privilege configuration
+517. Production dependency pinning
+518. Dependency lockfile validation
+519. Dependency inventory
+520. SBOM generation requirement
+521. Dependency vulnerability scan
+522. Static security scan
+523. Secret-scanning CI gate
+524. Unsafe-config CI gate
+525. Debug-mode production guard
+526. Insecure-TLS configuration guard
+527. TLS certificate validation
+528. Request timeout enforcement
+529. Retry-bound enforcement
+530. Retry-jitter enforcement
+531. Malformed-response quarantine
+532. Oversized-response rejection
+533. Unexpected-content-type rejection
+534. Input-schema validation
+535. Output-schema validation
+536. External-input sanitization
+537. URL normalization guard
+538. SSRF-safe source policy
+539. Outbound-host allowlist
+540. Network-egress policy
 
-### Recovery and reconciliation
-451. Append-only recovery journal
-452. Startup journal replay
-453. Journal sequence validation
-454. Duplicate-event recovery guard
-455. Duplicate-order recovery guard
-456. Idempotent order recovery
-457. Unknown-order reconciliation
-458. Open-order reconciliation
-459. Position reconciliation
-460. Balance reconciliation
-461. Margin reconciliation
-462. Funding reconciliation
-463. Fee reconciliation
-464. PnL reconciliation
-465. Local-vs-exchange state diff
-466. Reconciliation retry policy
-467. Reconciliation escalation
-468. Recovery timeout
-469. Recovery circuit breaker
-470. Recovery audit record
-471. Kill-switch persistence
-472. Kill-switch startup check
-473. Kill-switch pre-order check
-474. Risk-engine pre-order check
-475. Account-state pre-order check
-476. Market-data pre-order check
-477. News-signal freshness pre-order check
-478. Order-intent expiry
-479. Client-order-id persistence
-480. Duplicate-client-order detection
-481. Unknown-execution quarantine
-482. Partial-execution reconciliation
-483. Cancel-confirmation reconciliation
-484. Replace-confirmation reconciliation
-485. Fill deduplication
-486. Fill sequence validation
-487. Position sign validation
-488. Position-size invariant
-489. Notional invariant
-490. Leverage invariant
-491. Margin invariant
-492. Daily-loss invariant
-493. Exposure invariant
-494. Open-position-count invariant
-495. Order-rate invariant
-496. Cancel-rate invariant
-497. Emergency flatten gate
-498. Emergency flatten audit trail
-499. Recovery metrics
-500. Operational readiness checklist
+### Execution security
+541. Live-order explicit capability gate
+542. Separate live credential gate
+543. Pre-submit risk gate
+544. Pre-submit account gate
+545. Pre-submit market gate
+546. Pre-submit freshness gate
+547. Pre-submit idempotency gate
+548. Symbol allowlist
+549. Side validation
+550. Quantity validation
+551. Price validation
+552. Notional validation
+553. Leverage validation
+554. Reduce-only validation
+555. Order-type validation
+556. Time-in-force validation
+557. Client-order-ID uniqueness
+558. Client-order-ID persistence
+559. Ambiguous-submit quarantine
+560. No-blind-retry rule
+561. Exchange-state reconciliation before retry
+562. Order acknowledgement validation
+563. Fill validation
+564. Fill-price sanity check
+565. Fill-size sanity check
+566. Position-direction sanity check
+567. Position-size sanity check
+568. Margin sanity check
+569. Balance sanity check
+570. Exposure sanity check
+571. Duplicate-fill rejection
+572. Duplicate-order rejection
+573. Unknown-order quarantine
+574. Unknown-fill quarantine
+575. Cancel acknowledgement validation
+576. Replace acknowledgement validation
+577. Order lifecycle timeout
+578. Stuck-order detector
+579. Emergency cancellation gate
+580. Emergency flatten authorization gate
+
+### Data and incident security
+581. Untrusted-news boundary
+582. Raw-headline execution prohibition
+583. Source provenance requirement
+584. Source transformation audit
+585. Timestamp validation
+586. Content encoding validation
+587. Content-size limit
+588. Contradictory-critical-data veto
+589. Unverifiable-critical-data veto
+590. Feed compromise flag
+591. Source spoofing detection interface
+592. Domain ownership metadata
+593. Publisher identity validation
+594. Certificate/transport anomaly logging
+595. Dependency failure isolation
+596. Security incident state
+597. Trading-disable-on-incident gate
+598. Evidence preservation hook
+599. Credential-rotation incident hook
+600. Post-incident review record
 
 ## Safety invariant
-Reliability upgrades cannot authorize trading by themselves. Every live order must pass mode, kill-switch, risk, account-state, market-data, signal-freshness, and idempotency gates.
+Security controls are defense-in-depth. No external input, credential, classifier, or strategy signal may bypass execution, risk, or reconciliation gates. Live execution remains explicitly opt-in.
