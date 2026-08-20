@@ -33,13 +33,13 @@ def healthy_preflight():
 
 
 def test_coordinator_blocks_without_preflight(tmp_path):
-    coordinator = GuardedLiveCoordinator(settings(), KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review"))
+    coordinator = GuardedLiveCoordinator(settings(), KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review", client_order_id="s1", request={"market_index": 1, "side": "buy", "notional_usd": 10, "signal_id": "s1"}, strategy_version="lighter-trader-v1", store_path=tmp_path / "approval.json"))
     with pytest.raises(LiveExecutionDisabled, match="preflight"):
         coordinator.submit(OrderIntent(1, "buy", 10, "s1"), signal=signal(), market=market(), portfolio=PortfolioState(1000))
 
 
 def test_coordinator_blocks_live_write_even_after_healthy_preflight(tmp_path):
-    coordinator = GuardedLiveCoordinator(settings(), KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review"))
+    coordinator = GuardedLiveCoordinator(settings(), KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review", client_order_id="s1", request={"market_index": 1, "side": "buy", "notional_usd": 10, "signal_id": "s1"}, strategy_version="lighter-trader-v1", store_path=tmp_path / "approval.json"))
     coordinator.set_preflight(healthy_preflight())
     with pytest.raises(LiveExecutionDisabled, match="remains disabled"):
         coordinator.submit(OrderIntent(1, "buy", 10, "s1"), signal=signal(), market=market(), portfolio=PortfolioState(1000))

@@ -34,13 +34,24 @@ def test_invalid_order_request_rejected():
         build_market_order_request(OrderIntent(0, "buy", 10, "s"), client_order_index=1, base_amount=1, avg_execution_price=1)
 
 
-def test_manual_approval_requires_identity_and_reference():
+def test_manual_approval_requires_identity_reference_and_binds_request(tmp_path):
     with pytest.raises(ValueError):
         ManualLiveApproval.issue("", "review")
     with pytest.raises(ValueError):
         ManualLiveApproval.issue("operator", "")
-    approval = ManualLiveApproval.issue("operator", "change-123")
+    approval = ManualLiveApproval.issue("operator", "change-123", client_order_id="c1", request={"side": "buy"}, strategy_version="v1", store_path=tmp_path / "approval.json")
     assert approval.review_reference == "change-123"
+    approval.verify(client_order_id="c1", request={"side": "buy"}, strategy_version="v1")
+    with pytest.raises(Exception, match="hash mismatch"):
+        approval.verify(client_order_id="c1", request={"side": "sell"}, strategy_version="v1")
+
+
+def test_manual_approval_is_single_use(tmp_path):
+    approval = ManualLiveApproval.issue("operator", "change-124", client_order_id="c2", request={}, strategy_version="v1", store_path=tmp_path / "approval.json")
+    consumed = approval.consume()
+    assert consumed.consumed
+    with pytest.raises(Exception, match="consumed"):
+        consumed.consume()
 
 
 def test_reconciliation_detects_unknown_status_and_is_deterministic():
@@ -59,7 +70,7 @@ def test_live_submit_remains_disabled_after_all_gates(tmp_path):
     settings = Settings(mode="live", base_url="https://mainnet.zklighter.elliot.ai", poll_interval_seconds=1)
     account = AccountSnapshot(1, Decimal("1000"), Decimal("900"), (), now)
     reconciliation = ReconciliationSnapshot(account, (), (), now.isoformat())
-    coordinator = GuardedLiveCoordinator(settings, KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review-1"))
+    coordinator = GuardedLiveCoordinator(settings, KillSwitch(tmp_path / "kill.json"), ManualLiveApproval.issue("operator", "review-1", client_order_id="s", request={"market_index": 1, "side": "buy", "notional_usd": 10, "signal_id": "s"}, strategy_version="lighter-trader-v1", store_path=tmp_path / "approval.json"))
     coordinator.set_preflight(Preflight(now, reconciliation))
     signal = Signal("s", "e", "BTC", Direction.LONG, .9, .9, now, now + timedelta(minutes=1))
     market = MarketSnapshot("BTC", now, 100, 101, 100, 1000, .01)

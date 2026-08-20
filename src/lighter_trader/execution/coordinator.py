@@ -49,6 +49,19 @@ class GuardedLiveCoordinator:
             raise LiveExecutionDisabled(f"kill switch active: {state.reason}")
         if self.approval is None:
             raise LiveExecutionDisabled("manual live approval is required")
+        try:
+            self.approval.verify(
+                client_order_id=intent.signal_id,
+                request={
+                    "market_index": intent.market_index,
+                    "side": intent.side,
+                    "notional_usd": intent.notional_usd,
+                    "signal_id": intent.signal_id,
+                },
+                strategy_version="lighter-trader-v1",
+            )
+        except Exception as exc:
+            raise LiveExecutionDisabled(f"manual live approval invalid: {exc}") from exc
         if self.preflight is None or not self.preflight.reconciliation.healthy:
             raise LiveExecutionDisabled("live preflight reconciliation is not healthy")
         now = datetime.now(timezone.utc)
