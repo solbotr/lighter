@@ -1,0 +1,20 @@
+[app]
+environment = "paper"
+log_level = "INFO"
+
+[signal]
+min_impact_score = 0.75
+max_news_age_seconds = 120
+require_source_confirmation = true
+require_market_confirmation = true
+
+[risk]
+max_position_usd = 100
+max_daily_loss_usd = 25
+max_leverage = 2
+max_open_positions = 3
+
+[execution]
+enabled = false
+exchange = ""
+slippage_bps = 10
