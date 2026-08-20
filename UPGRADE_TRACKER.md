@@ -1,115 +1,117 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–7: upgrades 1–700
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, execution controls, and advanced event intelligence.
+## Tranches 1–8: upgrades 1–800
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, execution controls, advanced event intelligence, portfolio risk, adaptive governance, and failure simulation.
 
-## Tranche 8: upgrades 701–800
+## Tranche 9: upgrades 801–900
 
-### Portfolio risk
-701. Gross exposure limit
-702. Net exposure limit
-703. Per-asset exposure limit
-704. Per-sector exposure limit
-705. Correlated-asset exposure limit
-706. Portfolio leverage limit
-707. Margin-utilization ceiling
-708. Available-margin floor
-709. Concentration penalty
-710. Correlation-aware sizing
-711. Volatility-aware sizing
-712. Liquidity-aware sizing
-713. Slippage-aware sizing
-714. Fee-aware sizing
-715. Funding-aware sizing
-716. Drawdown-aware sizing
-717. Daily-loss stop
-718. Consecutive-loss stop
-719. Maximum open positions
-720. Maximum turnover
-721. Maximum order rate
-722. Maximum capital-at-risk
-723. Marginal-risk calculation
-724. Portfolio-risk budget
-725. Shared-risk bucket
-726. Asset-risk bucket
-727. Sector-risk bucket
-728. Correlation-risk bucket
-729. Volatility-risk bucket
-730. Liquidity-risk bucket
-731. Risk-budget reservation
-732. Risk-budget release
-733. Risk-budget reconciliation
-734. Pre-trade portfolio simulation
-735. Post-trade portfolio validation
-736. Position concentration check
-737. Directional concentration check
-738. Correlation shock test
-739. Volatility shock test
-740. Liquidity shock test
+### Research data integrity
+801. Raw-event preservation
+802. Normalized-event preservation
+803. Source-provenance retention
+804. Ingestion-timestamp retention
+805. Publication-timestamp retention
+806. First-seen timestamp
+807. Revision-history retention
+808. Retraction-history retention
+809. Point-in-time asset mapping
+810. Point-in-time market metadata
+811. Point-in-time source availability
+812. Feature lineage
+813. Label lineage
+814. Dataset versioning
+815. Dataset checksum
+816. Split manifest
+817. Future-data access guard
+818. Duplicate-event check
+819. Duplicate-feature check
+820. Missing-data report
+821. Outlier report
+822. Coverage report
+823. Schema compatibility check
+824. Schema migration version
+825. Historical parser version
+826. Historical classifier version
+827. Historical mapping version
+828. Historical signal version
+829. Decision-timestamp contract
+830. Feature-availability assertion
 
-### Adaptive strategy governance
-741. Strategy-version registry
-742. Immutable approved live version
-743. Research-only parameter generation
-744. Training/evaluation dataset separation
-745. Timestamped feature lineage
-746. Target leakage detector
-747. Candidate parameter versioning
-748. Candidate backtest manifest
-749. Candidate out-of-sample gate
-750. Regression threshold gate
-751. Statistical-significance gate
-752. Minimum-sample gate
-753. Regime-coverage gate
-754. Cost-model gate
-755. Latency-model gate
-756. Slippage-model gate
-757. Paper-validation gate
-758. Shadow-validation gate
-759. Canary-validation gate
-760. Rollback artifact retention
-761. Rollback trigger policy
-762. Rollback execution gate
-763. Online-learning prohibition for permissions
-764. Online-learning leverage ceiling
-765. Online-learning risk-limit ceiling
-766. Bounded confidence adaptation
-767. Bounded threshold adaptation
-768. Adaptation drift monitor
-769. Strategy-performance drift detector
-770. Feature-distribution drift detector
+### Release and deployment governance
+831. Release manifest
+832. Source revision pin
+833. Strategy-version pin
+834. Configuration-version pin
+835. Dependency-lock pin
+836. Dataset-manifest pin
+837. Parameter-manifest pin
+838. Test-report artifact
+839. Backtest-report artifact
+840. Security-report artifact
+841. Reproducibility checksum
+842. Rollback-target pin
+843. Research-to-paper gate
+844. Paper-to-shadow gate
+845. Shadow-to-canary gate
+846. Canary-to-live gate
+847. Explicit operator promotion
+848. Promotion-blocking failure policy
+849. Release approval audit
+850. Release provenance record
+851. Previous-release retention
+852. Rollback package retention
+853. Configuration rollback
+854. Strategy rollback
+855. Dependency rollback
+856. Parameter rollback
+857. Disable-new-entries fallback
+858. Emergency rollback trigger
+859. Rollback verification
+860. Post-rollback validation
 
-### Testing and failure simulation
-771. Portfolio-risk unit tests
-772. Correlation-risk tests
-773. Exposure-limit tests
-774. Margin-limit tests
-775. Drawdown-limit tests
-776. Emergency-flatten tests
-777. Restart-with-open-position test
-778. Restart-with-open-order test
-779. Duplicate-order recovery test
-780. Ambiguous-submit recovery test
-781. Missing-fill recovery test
-782. Delayed-fill recovery test
-783. Out-of-order-fill test
-784. Stale-account test
-785. Stale-market test
-786. Stale-news test
-787. Conflicting-news test
-788. Feed-compromise test
-789. API-timeout test
-790. WebSocket-disconnect test
-791. Reconnect-state test
-792. Partial-outage test
-793. Full-outage fail-closed test
-794. Clock-skew test
-795. Event-loop-stall test
-796. Memory-pressure test
-797. Disk-pressure test
-798. Queue-overflow test
-799. Kill-switch persistence test
-800. Full recovery-drill test
+### Operational performance and observability
+861. End-to-end event latency metric
+862. News-to-signal latency metric
+863. Signal-to-order latency metric
+864. Order-to-ack latency metric
+865. Ack-to-fill latency metric
+866. End-to-end execution latency
+867. Source-latency percentile
+868. Processing-latency percentile
+869. Queue-latency percentile
+870. Execution-latency percentile
+871. Slippage percentile
+872. Spread-cost percentile
+873. Fee-cost percentile
+874. Funding-cost percentile
+875. PnL attribution dashboard
+876. Risk-veto dashboard
+877. Signal-quality dashboard
+878. Source-quality dashboard
+879. Asset-performance dashboard
+880. Regime-performance dashboard
+881. Strategy-version dashboard
+882. Live-vs-paper divergence metric
+883. Live-vs-shadow divergence metric
+884. Expected-vs-realized slippage metric
+885. Expected-vs-realized latency metric
+886. Expected-vs-realized fill metric
+887. Data-freshness dashboard
+888. Dependency-health dashboard
+889. WebSocket-reconnect dashboard
+890. API-error dashboard
+
+### Final resilience and audit controls
+891. Audit-log completeness check
+892. Audit-log sequence check
+893. Audit-log tamper-evidence requirement
+894. Signal-to-order trace check
+895. Order-to-fill trace check
+896. Fill-to-position trace check
+897. Position-to-PnL trace check
+898. PnL-to-account reconciliation check
+899. Full-system audit replay
+900. Disaster-recovery acceptance test
 
 ## Safety invariant
-Portfolio risk remains independent from strategy confidence. Adaptive components cannot expand capital, leverage, permissions, or safety limits in live mode.
+Research, release, and observability controls must preserve point-in-time correctness and provide a reversible deployment path. No release artifact may silently enable live trading.
