@@ -1,117 +1,115 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–6: upgrades 1–600
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, and execution controls.
+## Tranches 1–7: upgrades 1–700
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, execution controls, and advanced event intelligence.
 
-## Tranche 7: upgrades 601–700
+## Tranche 8: upgrades 701–800
 
-### Advanced news intelligence
-601. Multi-feed ingestion coordinator
-602. Feed priority policy
-603. Source latency ranking
-604. Source reliability score
-605. Source historical accuracy score
-606. Source independence score
-607. Publisher identity graph
-608. Author identity graph
-609. Primary-source detection
-610. Secondary-source detection
-611. Syndication-chain detection
-612. Quote-origin extraction
-613. Claim extraction
-614. Claim normalization
-615. Claim confidence
-616. Claim evidence links
-617. Fact/opinion classifier
-618. Announcement/rumor classifier
-619. New/repeated-information classifier
-620. Materiality classifier
-621. Novelty classifier
-622. Temporal-reference resolver
-623. Relative-time normalization
-624. Entity co-reference resolution
-625. Pronoun/entity resolution
-626. Asset co-mention graph
-627. Direct-impact classifier
-628. Indirect-impact classifier
-629. Narrative-spillover classifier
-630. Positive-language/economic-impact separation
-631. Bullish-impact classifier
-632. Bearish-impact classifier
-633. Neutral-impact classifier
-634. Ambiguous-impact classifier
-635. Multi-asset impact ranking
-636. Event dependency graph
-637. Event predecessor tracking
-638. Event successor tracking
-639. Event supersession detection
-640. Event invalidation propagation
+### Portfolio risk
+701. Gross exposure limit
+702. Net exposure limit
+703. Per-asset exposure limit
+704. Per-sector exposure limit
+705. Correlated-asset exposure limit
+706. Portfolio leverage limit
+707. Margin-utilization ceiling
+708. Available-margin floor
+709. Concentration penalty
+710. Correlation-aware sizing
+711. Volatility-aware sizing
+712. Liquidity-aware sizing
+713. Slippage-aware sizing
+714. Fee-aware sizing
+715. Funding-aware sizing
+716. Drawdown-aware sizing
+717. Daily-loss stop
+718. Consecutive-loss stop
+719. Maximum open positions
+720. Maximum turnover
+721. Maximum order rate
+722. Maximum capital-at-risk
+723. Marginal-risk calculation
+724. Portfolio-risk budget
+725. Shared-risk bucket
+726. Asset-risk bucket
+727. Sector-risk bucket
+728. Correlation-risk bucket
+729. Volatility-risk bucket
+730. Liquidity-risk bucket
+731. Risk-budget reservation
+732. Risk-budget release
+733. Risk-budget reconciliation
+734. Pre-trade portfolio simulation
+735. Post-trade portfolio validation
+736. Position concentration check
+737. Directional concentration check
+738. Correlation shock test
+739. Volatility shock test
+740. Liquidity shock test
 
-### News manipulation and quality controls
-641. Headline sensationalism detector
-642. Emotional-language penalty
-643. ALL-CAPS penalty
-644. Engagement-bait penalty
-645. Clickbait pattern detector
-646. Bot-amplification flag
-647. Coordinated-post flag
-648. Social-copy cluster detector
-649. Repeated-post suppression
-650. Screenshot-evidence downgrade
-651. Unverified-source downgrade
-652. Anonymous-source downgrade
-653. Single-source critical-event veto
-654. Contradictory-source veto
-655. Retraction propagation
-656. Correction propagation
-657. Article-edit detection
-658. Timestamp anomaly detection
-659. Future-timestamp rejection
-660. Impossible chronology rejection
+### Adaptive strategy governance
+741. Strategy-version registry
+742. Immutable approved live version
+743. Research-only parameter generation
+744. Training/evaluation dataset separation
+745. Timestamped feature lineage
+746. Target leakage detector
+747. Candidate parameter versioning
+748. Candidate backtest manifest
+749. Candidate out-of-sample gate
+750. Regression threshold gate
+751. Statistical-significance gate
+752. Minimum-sample gate
+753. Regime-coverage gate
+754. Cost-model gate
+755. Latency-model gate
+756. Slippage-model gate
+757. Paper-validation gate
+758. Shadow-validation gate
+759. Canary-validation gate
+760. Rollback artifact retention
+761. Rollback trigger policy
+762. Rollback execution gate
+763. Online-learning prohibition for permissions
+764. Online-learning leverage ceiling
+765. Online-learning risk-limit ceiling
+766. Bounded confidence adaptation
+767. Bounded threshold adaptation
+768. Adaptation drift monitor
+769. Strategy-performance drift detector
+770. Feature-distribution drift detector
 
-### Event reaction and signal governance
-661. Event reaction baseline freeze
-662. Pre-event contamination detector
-663. Market-wide confounder detector
-664. BTC confounder detector
-665. ETH confounder detector
-666. Sector confounder detector
-667. Concurrent-news detector
-668. Concurrent-event clustering
-669. Reaction attribution confidence
-670. Event-driven return isolation
-671. Event-driven volume isolation
-672. Event-driven volatility isolation
-673. Reaction persistence threshold
-674. Reaction exhaustion threshold
-675. Sell-the-news detector
-676. Buy-the-rumor detector
-677. Delayed-reaction detector
-678. Overreaction detector
-679. Underreaction detector
-680. Gap-and-fade detector
-681. Breakout-and-hold detector
-682. Failed-breakout detector
-683. Mean-reversion confirmation
-684. Trend-continuation confirmation
-685. Signal expiry policy
-686. Signal versioning
-687. Signal supersession
-688. Signal invalidation
-689. Signal audit trail
-690. Signal explanation payload
-
-### Strategy evaluation and governance
-691. News-quality scorecard
-692. Source-quality scorecard
-693. Event-type scorecard
-694. Asset scorecard
-695. Market-regime scorecard
-696. Latency scorecard
-697. Slippage scorecard
-698. Paper-vs-shadow comparison
-699. Promotion gate checklist
-700. Operator approval gate
+### Testing and failure simulation
+771. Portfolio-risk unit tests
+772. Correlation-risk tests
+773. Exposure-limit tests
+774. Margin-limit tests
+775. Drawdown-limit tests
+776. Emergency-flatten tests
+777. Restart-with-open-position test
+778. Restart-with-open-order test
+779. Duplicate-order recovery test
+780. Ambiguous-submit recovery test
+781. Missing-fill recovery test
+782. Delayed-fill recovery test
+783. Out-of-order-fill test
+784. Stale-account test
+785. Stale-market test
+786. Stale-news test
+787. Conflicting-news test
+788. Feed-compromise test
+789. API-timeout test
+790. WebSocket-disconnect test
+791. Reconnect-state test
+792. Partial-outage test
+793. Full-outage fail-closed test
+794. Clock-skew test
+795. Event-loop-stall test
+796. Memory-pressure test
+797. Disk-pressure test
+798. Queue-overflow test
+799. Kill-switch persistence test
+800. Full recovery-drill test
 
 ## Safety invariant
-News intelligence can enrich a signal but cannot directly authorize an order. Critical or contradictory information must fail closed, and live promotion always requires an explicit operator-controlled gate.
+Portfolio risk remains independent from strategy confidence. Adaptive components cannot expand capital, leverage, permissions, or safety limits in live mode.
