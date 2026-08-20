@@ -1,117 +1,120 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–8: upgrades 1–800
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, execution controls, advanced event intelligence, portfolio risk, adaptive governance, and failure simulation.
+## Tranches 1–9: upgrades 1–900
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, research integrity, runtime reliability, recovery, reconciliation, security, execution controls, advanced event intelligence, portfolio risk, adaptive governance, failure simulation, release governance, observability, and audit controls.
 
-## Tranche 9: upgrades 801–900
+## Tranche 10: upgrades 901–1000
 
-### Research data integrity
-801. Raw-event preservation
-802. Normalized-event preservation
-803. Source-provenance retention
-804. Ingestion-timestamp retention
-805. Publication-timestamp retention
-806. First-seen timestamp
-807. Revision-history retention
-808. Retraction-history retention
-809. Point-in-time asset mapping
-810. Point-in-time market metadata
-811. Point-in-time source availability
-812. Feature lineage
-813. Label lineage
-814. Dataset versioning
-815. Dataset checksum
-816. Split manifest
-817. Future-data access guard
-818. Duplicate-event check
-819. Duplicate-feature check
-820. Missing-data report
-821. Outlier report
-822. Coverage report
-823. Schema compatibility check
-824. Schema migration version
-825. Historical parser version
-826. Historical classifier version
-827. Historical mapping version
-828. Historical signal version
-829. Decision-timestamp contract
-830. Feature-availability assertion
+### Final engineering acceptance
+901. Type-check gate
+902. Unit-test gate
+903. Integration-test gate
+904. Failure-injection gate
+905. Dependency-security gate
+906. Secret-scan gate
+907. Configuration-validation gate
+908. Reproducibility gate
+909. Build-artifact verification
+910. Runtime startup verification
+911. Graceful-shutdown verification
+912. Restart recovery verification
+913. State-checkpoint verification
+914. Journal-replay verification
+915. Idempotency verification
+916. Order-reconciliation verification
+917. Position-reconciliation verification
+918. Balance-reconciliation verification
+919. PnL-reconciliation verification
+920. Audit-trail completeness verification
 
-### Release and deployment governance
-831. Release manifest
-832. Source revision pin
-833. Strategy-version pin
-834. Configuration-version pin
-835. Dependency-lock pin
-836. Dataset-manifest pin
-837. Parameter-manifest pin
-838. Test-report artifact
-839. Backtest-report artifact
-840. Security-report artifact
-841. Reproducibility checksum
-842. Rollback-target pin
-843. Research-to-paper gate
-844. Paper-to-shadow gate
-845. Shadow-to-canary gate
-846. Canary-to-live gate
-847. Explicit operator promotion
-848. Promotion-blocking failure policy
-849. Release approval audit
-850. Release provenance record
-851. Previous-release retention
-852. Rollback package retention
-853. Configuration rollback
-854. Strategy rollback
-855. Dependency rollback
-856. Parameter rollback
-857. Disable-new-entries fallback
-858. Emergency rollback trigger
-859. Rollback verification
-860. Post-rollback validation
+### Final data acceptance
+921. News provenance completeness gate
+922. Decision-timestamp validation gate
+923. Look-ahead leakage gate
+924. Point-in-time mapping gate
+925. Market-data freshness gate
+926. Duplicate-event fail-closed gate
+927. Contradictory-event fail-closed gate
+928. Retraction propagation gate
+929. Correction propagation gate
+930. Source-identity validation gate
+931. Critical-event corroboration gate
+932. Event-materiality validation gate
+933. Novelty validation gate
+934. Asset-relevance validation gate
+935. Concurrent-catalyst detection gate
+936. Market-repricing detection gate
+937. Pre-event contamination gate
+938. Event-attribution confidence gate
+939. Feature-availability assertion gate
+940. Dataset checksum gate
 
-### Operational performance and observability
-861. End-to-end event latency metric
-862. News-to-signal latency metric
-863. Signal-to-order latency metric
-864. Order-to-ack latency metric
-865. Ack-to-fill latency metric
-866. End-to-end execution latency
-867. Source-latency percentile
-868. Processing-latency percentile
-869. Queue-latency percentile
-870. Execution-latency percentile
-871. Slippage percentile
-872. Spread-cost percentile
-873. Fee-cost percentile
-874. Funding-cost percentile
-875. PnL attribution dashboard
-876. Risk-veto dashboard
-877. Signal-quality dashboard
-878. Source-quality dashboard
-879. Asset-performance dashboard
-880. Regime-performance dashboard
-881. Strategy-version dashboard
-882. Live-vs-paper divergence metric
-883. Live-vs-shadow divergence metric
-884. Expected-vs-realized slippage metric
-885. Expected-vs-realized latency metric
-886. Expected-vs-realized fill metric
-887. Data-freshness dashboard
-888. Dependency-health dashboard
-889. WebSocket-reconnect dashboard
-890. API-error dashboard
+### Final trading acceptance
+941. Paper reproducibility gate
+942. Shadow behavior gate
+943. Cost-model validation gate
+944. Latency-model validation gate
+945. Slippage-model validation gate
+946. Liquidity-model validation gate
+947. Funding-cost validation gate
+948. Portfolio-risk validation gate
+949. Leverage validation gate
+950. Margin validation gate
+951. Drawdown validation gate
+952. Exposure validation gate
+953. Concentration validation gate
+954. Correlation-risk validation gate
+955. Order-idempotency gate
+956. Ambiguous-submit gate
+957. Fill-reconciliation gate
+958. Position-reconciliation gate
+959. Emergency-cancel gate
+960. Emergency-flatten gate
 
-### Final resilience and audit controls
-891. Audit-log completeness check
-892. Audit-log sequence check
-893. Audit-log tamper-evidence requirement
-894. Signal-to-order trace check
-895. Order-to-fill trace check
-896. Fill-to-position trace check
-897. Position-to-PnL trace check
-898. PnL-to-account reconciliation check
-899. Full-system audit replay
-900. Disaster-recovery acceptance test
+### Final operations and governance
+961. Monitoring-active gate
+962. Alerting-active gate
+963. Dependency-health gate
+964. News-feed health gate
+965. Market-data health gate
+966. Account-state health gate
+967. Recovery-drill gate
+968. Disaster-recovery gate
+969. Rollback-artifact gate
+970. Rollback-verification gate
+971. Previous-release recovery gate
+972. Release-provenance gate
+973. Strategy-version approval gate
+974. Configuration-version approval gate
+975. Dependency-version approval gate
+976. Explicit live-mode approval gate
+977. Separate live-credential approval gate
+978. Operator emergency-disable gate
+979. New-entry disable fallback
+980. Incident-response readiness gate
 
-## Safety invariant
-Research, release, and observability controls must preserve point-in-time correctness and provide a reversible deployment path. No release artifact may silently enable live trading.
+### Final strategy discipline
+981. No raw-headline execution rule
+982. No single-source critical trade rule
+983. No stale-signal trade rule
+984. No stale-market trade rule
+985. No stale-account trade rule
+986. No unresolved-contradiction trade rule
+987. No unresolved-reconciliation trade rule
+988. No risk-budget breach rule
+989. No leverage-limit breach rule
+990. No margin-floor breach rule
+991. No liquidity-limit breach rule
+992. No excessive-slippage trade rule
+993. No excessive-spread trade rule
+994. No duplicate-order rule
+995. No blind-retry rule
+996. No unexplained-PnL-drift continuation rule
+997. No failed-readiness promotion rule
+998. Explicit operator approval record
+999. Final audit replay
+1000. Final readiness sign-off
+
+## Final invariant
+
+The 1,000-item upgrade program is complete as a **design and acceptance checklist**. Completion does not claim that every item is independently implemented or that live trading is profitable. Lighter must pass the applicable engineering, data, trading, security, and operational gates before live execution is enabled.
