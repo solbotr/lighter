@@ -1,116 +1,118 @@
 # Lighter — Upgrade Program
 
-## Tranche 1: 100 upgrades
-
-Completed baseline hardening: news normalization, deduplication, entity detection, Lighter market-data interfaces, signal gates, risk limits, and execution safety.
+## Tranche 1: upgrades 1–100
+Baseline hardening: news normalization, deduplication, entity detection, Lighter market-data interfaces, signal gates, risk limits, and execution safety.
 
 ## Tranche 2: upgrades 101–200
+Multi-source news intelligence, feed health, source provenance, event clustering, entity/market mapping, and event classifiers.
 
-### News intelligence
-101. Multi-source feed interface
-102. RSS ingestion adapter
-103. Atom ingestion adapter
-104. JSON feed adapter
-105. Webhook ingestion interface
-106. Feed health monitor
-107. Source heartbeat tracking
-108. Source outage detection
-109. Source recovery detection
-110. Per-source latency histogram
-111. Article canonical URL normalization
-112. URL tracking-parameter stripping
-113. Language detection interface
-114. Translation interface
-115. Translation confidence field
-116. Title/body disagreement detection
-117. Author identity normalization
-118. Publisher ownership metadata
-119. Source independence classification
-120. Syndication-chain detection
-121. First-seen source tracking
-122. Earliest-publication timestamp
-123. Republication detection
-124. Quote-origin detection
-125. Primary-source preference
-126. Official-announcement preference
-127. Social-post source classification
-128. Screenshot-only evidence flag
-129. Unverifiable-claim flag
-130. Source blacklist
-131. Source allowlist
-132. Source weighting configuration
-133. Source-specific parser versioning
-134. Parser failure quarantine
-135. Malformed-feed quarantine
-136. Content-size limits
-137. HTML/script stripping
-138. Encoding validation
-139. MIME-type validation
-140. Content hash generation
-141. Semantic fingerprint generation
-142. Event-cluster assignment
-143. Event-cluster merge
-144. Event-cluster split
-145. Event chronology ordering
-146. Event supersession links
-147. Event correction propagation
-148. Event retraction propagation
-149. Event confidence decay
-150. Event archival policy
+## Tranche 3: upgrades 201–300
 
-### Entity and market mapping
-151. Project-name alias table
-152. Protocol-name alias table
-153. Company-name alias table
-154. Person-name alias table
-155. Exchange-name alias table
-156. Chain-name alias table
-157. Token contract alias table
-158. Lighter market-index mapping
-159. Cross-chain asset mapping
-160. Wrapped-asset mapping
-161. Perpetual-vs-spot distinction
-162. Long/short semantic normalization
-163. Quote-currency normalization
-164. Stablecoin classification
-165. Asset-category classification
-166. Governance-token classification
-167. Exchange-token classification
-168. L1/L2 classification
-169. DeFi classification
-170. Meme-token classification
-171. AI-token classification
-172. Infrastructure-token classification
-173. Event relevance matrix
-174. Direct-exposure score
-175. Indirect-exposure score
-176. Sector spillover score
-177. Competitor spillover score
-178. Narrative spillover score
-179. Market-beta adjustment
-180. BTC-beta adjustment
-181. ETH-beta adjustment
-182. Sector-beta adjustment
-183. Correlation-window selection
-184. Correlation confidence
-185. Mapping ambiguity veto
+### Market microstructure
+201. L2 book normalization
+202. L2 sequence validation
+203. Snapshot/delta consistency check
+204. Missing-update detection
+205. Duplicate-update rejection
+206. Out-of-order update rejection
+207. Book checksum interface
+208. Bid-level aggregation
+209. Ask-level aggregation
+210. Top-N depth metrics
+211. Depth imbalance metric
+212. Microprice calculation
+213. Order-book pressure score
+214. Spread percentile
+215. Spread regime classification
+216. Effective spread estimator
+217. Expected slippage curve
+218. Market-impact curve
+219. Liquidity percentile
+220. Liquidity regime classification
+221. Trade-tape normalization
+222. Trade sequence validation
+223. Aggressor-side inference
+224. Buy-volume ratio
+225. Sell-volume ratio
+226. Volume delta
+227. Volume acceleration
+228. Trade-size distribution
+229. Large-trade detector
+230. Sweep detector
+231. Block-trade flag
+232. Wash-trade anomaly flag
+233. Price-gap detector
+234. Return-window calculator
+235. Realized volatility windows
+236. EWMA volatility
+237. Volatility percentile
+238. ATR-like range metric
+239. Jump-intensity metric
+240. Tail-risk metric
+241. Price-volume divergence
+242. Order-book/price divergence
+243. Momentum persistence score
+244. Reversal-pressure score
+245. Market-impact decay
 
-### Event intelligence
-186. Regulatory-event classifier
-187. Listing-event classifier
-188. Delisting-event classifier
-189. Partnership-event classifier
-190. Investment-event classifier
-191. Funding-event classifier
-192. Product-launch classifier
-193. Protocol-upgrade classifier
-194. Security-incident classifier
-195. Exploit-event classifier
-196. ETF/event classifier
-197. Macro-event classifier
-198. Political-statement classifier
-199. Exchange-outage classifier
-200. Bankruptcy/insolvency classifier
+### Event reaction engine
+246. Event reaction start timestamp
+247. Pre-event price baseline
+248. Pre-event volume baseline
+249. Post-event return windows
+250. Post-event volume windows
+251. Event-window volatility
+252. Abnormal-return estimator
+253. Abnormal-volume estimator
+254. Reaction velocity
+255. Reaction acceleration
+256. Peak reaction tracker
+257. Peak-to-current retracement
+258. First-minute reaction score
+259. Five-minute reaction score
+260. Fifteen-minute reaction score
+261. One-hour reaction score
+262. Multi-window agreement
+263. Reaction persistence test
+264. Reaction exhaustion test
+265. Breakout confirmation
+266. Failed-breakout detection
+267. Gap-fill detection
+268. Mean-reversion probability
+269. Trend-continuation probability
+270. Volatility-expansion probability
+271. Volatility-compression probability
+272. Event-induced regime transition
+273. Market-wide reaction benchmark
+274. BTC benchmark reaction
+275. ETH benchmark reaction
+276. Sector benchmark reaction
+277. Relative-strength calculation
+278. Relative-volume calculation
+279. Cross-market lead/lag
+280. Reaction anomaly ranking
+
+### Signal quality
+281. Signal component registry
+282. Component normalization
+283. Component weighting
+284. Weight versioning
+285. Weight bounds
+286. Score range enforcement
+287. Confidence calibration interface
+288. Probability calibration
+289. Reliability tracking
+290. Signal attribution
+291. Feature contribution logging
+292. Missing-feature penalty
+293. Stale-feature penalty
+294. Contradictory-feature penalty
+295. Extreme-feature sanity check
+296. Outlier feature clipping
+297. Feature winsorization interface
+298. Feature freshness metadata
+299. Feature provenance metadata
+300. Deterministic signal fingerprint
 
 ## Safety invariant
-Tranche 2 expands intelligence and mapping only. Live execution remains opt-in, and no classifier may directly bypass the signal/risk pipeline.
+Tranche 3 strengthens market-data integrity and event-reaction measurement. It does not authorize live execution or allow a signal to bypass risk controls.
