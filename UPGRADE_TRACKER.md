@@ -1,113 +1,113 @@
 # Lighter — Upgrade Program
 
-## Tranches 1–3: upgrades 1–300
-Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, event reaction measurement, and signal-quality controls.
+## Tranches 1–4: upgrades 1–400
+Completed tracker coverage for baseline hardening, news intelligence, entity mapping, market microstructure, event reaction measurement, signal quality, and research/backtesting integrity.
 
-## Tranche 4: upgrades 301–400
+## Tranche 5: upgrades 401–500
 
-### Backtesting integrity
-301. Event-time replay clock
-302. Point-in-time news store
-303. Point-in-time market store
-304. Look-ahead-bias guard
-305. Future-data access assertion
-306. Survivorship-bias guard
-307. Delisted-market retention
-308. Symbol-history mapping
-309. Historical alias versioning
-310. Historical source availability tracking
-311. News-ingestion latency replay
-312. Market-data latency replay
-313. Execution-latency replay
-314. Network-delay model
-315. Jitter model
-316. Order acknowledgement delay model
-317. Partial-fill simulation
-318. Reject simulation
-319. Cancel simulation
-320. Cancel/replace simulation
-321. Fee model
-322. Maker/taker fee model
-323. Funding-cost model
-324. Borrow-cost model interface
-325. Slippage model
-326. Spread-cost model
-327. Market-impact model
-328. Liquidity depletion model
-329. Price-gap simulation
-330. Flash-move simulation
-331. Exchange-outage simulation
-332. Feed-outage simulation
-333. Stale-price simulation
-334. Stale-news simulation
-335. Duplicate-news replay
-336. Contradictory-news replay
-337. Rumor replay
-338. Retraction replay
-339. Correction replay
-340. Delayed-source replay
+### Runtime and reliability
+401. Explicit research mode
+402. Explicit paper mode
+403. Explicit shadow mode
+404. Explicit live mode
+405. Live-mode fail-closed default
+406. Credential-presence does not enable live mode
+407. Startup configuration validation
+408. Configuration schema version
+409. Configuration checksum
+410. Environment validation
+411. Required-secret validation
+412. Secret-format validation
+413. Secret-redaction layer
+414. Structured JSON logging
+415. Log-level configuration
+416. Correlation-ID propagation
+417. Event-ID propagation
+418. Signal-ID propagation
+419. Order-ID propagation
+420. Execution-ID propagation
+421. UTC timestamp normalization
+422. Monotonic latency clock
+423. Wall-clock sanity check
+424. Clock-drift alert
+425. Dependency health registry
+426. Lighter API health check
+427. Lighter WebSocket health check
+428. News-source health registry
+429. Market-data freshness monitor
+430. Account-state freshness monitor
+431. Heartbeat watchdog
+432. Event-loop stall detector
+433. Memory-pressure monitor
+434. CPU-pressure monitor
+435. Disk-space monitor
+436. File-descriptor monitor
+437. Connection-count monitor
+438. Queue-depth monitor
+439. Processing-lag monitor
+440. Backpressure mechanism
+441. Bounded event queues
+442. Bounded retry queues
+443. Dead-letter queue
+444. Poison-message quarantine
+445. Graceful shutdown handler
+446. Signal-drain shutdown
+447. Order-drain shutdown
+448. Cancellation-on-emergency shutdown
+449. Persistent state checkpoint
+450. Checkpoint checksum
 
-### Statistical validation
-341. Trade-level PnL attribution
-342. Event-level PnL attribution
-343. Source-level PnL attribution
-344. Asset-level PnL attribution
-345. Direction-level attribution
-346. Holding-time attribution
-347. Entry-latency attribution
-348. Exit-latency attribution
-349. Slippage attribution
-350. Fee attribution
-351. Funding attribution
-352. Gross-return metric
-353. Net-return metric
-354. Expectancy metric
-355. Profit-factor metric
-356. Sharpe metric
-357. Sortino metric
-358. Calmar metric
-359. Maximum-drawdown metric
-360. Recovery-factor metric
-361. Win-rate metric
-362. Loss-streak metric
-363. Tail-loss metric
-364. Tail-gain metric
-365. Value-at-risk interface
-366. Expected-shortfall interface
-367. Bootstrap confidence interval
-368. Monte-Carlo trade-order test
-369. Parameter sensitivity sweep
-370. Threshold sensitivity sweep
-371. Latency sensitivity sweep
-372. Slippage sensitivity sweep
-373. Fee sensitivity sweep
-374. News-quality sensitivity sweep
-375. Source-ablation test
-376. Feature-ablation test
-377. Signal-component ablation
-378. Randomized-label sanity test
-379. No-news baseline
-380. Price-only baseline
-381. Sentiment-only baseline
-382. Momentum-only baseline
-383. Buy-and-hold benchmark
-384. Random-entry benchmark
-385. Market-beta benchmark
-386. Out-of-sample holdout
-387. Walk-forward split
-388. Purged time-series split
-389. Embargo window
-390. Regime-stratified validation
-391. Bull-market validation
-392. Bear-market validation
-393. Sideways-market validation
-394. High-volatility validation
-395. Low-volatility validation
-396. High-liquidity validation
-397. Low-liquidity validation
-398. Out-of-distribution event test
-399. Reproducibility manifest
-400. Backtest result checksum
+### Recovery and reconciliation
+451. Append-only recovery journal
+452. Startup journal replay
+453. Journal sequence validation
+454. Duplicate-event recovery guard
+455. Duplicate-order recovery guard
+456. Idempotent order recovery
+457. Unknown-order reconciliation
+458. Open-order reconciliation
+459. Position reconciliation
+460. Balance reconciliation
+461. Margin reconciliation
+462. Funding reconciliation
+463. Fee reconciliation
+464. PnL reconciliation
+465. Local-vs-exchange state diff
+466. Reconciliation retry policy
+467. Reconciliation escalation
+468. Recovery timeout
+469. Recovery circuit breaker
+470. Recovery audit record
+471. Kill-switch persistence
+472. Kill-switch startup check
+473. Kill-switch pre-order check
+474. Risk-engine pre-order check
+475. Account-state pre-order check
+476. Market-data pre-order check
+477. News-signal freshness pre-order check
+478. Order-intent expiry
+479. Client-order-id persistence
+480. Duplicate-client-order detection
+481. Unknown-execution quarantine
+482. Partial-execution reconciliation
+483. Cancel-confirmation reconciliation
+484. Replace-confirmation reconciliation
+485. Fill deduplication
+486. Fill sequence validation
+487. Position sign validation
+488. Position-size invariant
+489. Notional invariant
+490. Leverage invariant
+491. Margin invariant
+492. Daily-loss invariant
+493. Exposure invariant
+494. Open-position-count invariant
+495. Order-rate invariant
+496. Cancel-rate invariant
+497. Emergency flatten gate
+498. Emergency flatten audit trail
+499. Recovery metrics
+500. Operational readiness checklist
 
 ## Safety invariant
-Backtesting must never create live orders. Historical results are evidence for evaluation, not permission to trade live.
+Reliability upgrades cannot authorize trading by themselves. Every live order must pass mode, kill-switch, risk, account-state, market-data, signal-freshness, and idempotency gates.
