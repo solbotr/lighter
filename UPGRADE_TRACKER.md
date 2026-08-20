@@ -7,112 +7,113 @@ Baseline hardening: news normalization, deduplication, entity detection, Lighter
 Multi-source news intelligence, feed health, source provenance, event clustering, entity/market mapping, and event classifiers.
 
 ## Tranche 3: upgrades 201–300
+Market microstructure, event reaction measurement, feature quality and deterministic signal fingerprints.
 
-### Market microstructure
-201. L2 book normalization
-202. L2 sequence validation
-203. Snapshot/delta consistency check
-204. Missing-update detection
-205. Duplicate-update rejection
-206. Out-of-order update rejection
-207. Book checksum interface
-208. Bid-level aggregation
-209. Ask-level aggregation
-210. Top-N depth metrics
-211. Depth imbalance metric
-212. Microprice calculation
-213. Order-book pressure score
-214. Spread percentile
-215. Spread regime classification
-216. Effective spread estimator
-217. Expected slippage curve
-218. Market-impact curve
-219. Liquidity percentile
-220. Liquidity regime classification
-221. Trade-tape normalization
-222. Trade sequence validation
-223. Aggressor-side inference
-224. Buy-volume ratio
-225. Sell-volume ratio
-226. Volume delta
-227. Volume acceleration
-228. Trade-size distribution
-229. Large-trade detector
-230. Sweep detector
-231. Block-trade flag
-232. Wash-trade anomaly flag
-233. Price-gap detector
-234. Return-window calculator
-235. Realized volatility windows
-236. EWMA volatility
-237. Volatility percentile
-238. ATR-like range metric
-239. Jump-intensity metric
-240. Tail-risk metric
-241. Price-volume divergence
-242. Order-book/price divergence
-243. Momentum persistence score
-244. Reversal-pressure score
-245. Market-impact decay
+## Tranche 4: upgrades 301–400
 
-### Event reaction engine
-246. Event reaction start timestamp
-247. Pre-event price baseline
-248. Pre-event volume baseline
-249. Post-event return windows
-250. Post-event volume windows
-251. Event-window volatility
-252. Abnormal-return estimator
-253. Abnormal-volume estimator
-254. Reaction velocity
-255. Reaction acceleration
-256. Peak reaction tracker
-257. Peak-to-current retracement
-258. First-minute reaction score
-259. Five-minute reaction score
-260. Fifteen-minute reaction score
-261. One-hour reaction score
-262. Multi-window agreement
-263. Reaction persistence test
-264. Reaction exhaustion test
-265. Breakout confirmation
-266. Failed-breakout detection
-267. Gap-fill detection
-268. Mean-reversion probability
-269. Trend-continuation probability
-270. Volatility-expansion probability
-271. Volatility-compression probability
-272. Event-induced regime transition
-273. Market-wide reaction benchmark
-274. BTC benchmark reaction
-275. ETH benchmark reaction
-276. Sector benchmark reaction
-277. Relative-strength calculation
-278. Relative-volume calculation
-279. Cross-market lead/lag
-280. Reaction anomaly ranking
+### Backtesting and research
+301. Event replay clock
+302. Deterministic replay mode
+303. Historical news schema
+304. Historical market-data schema
+305. Point-in-time entity mapping
+306. Point-in-time source scores
+307. Point-in-time market metadata
+308. Look-ahead-bias detector
+309. Survivorship-bias guard
+310. Delisted-market handling
+311. Missing-data accounting
+312. Gap-aware replay
+313. Feed-latency simulation
+314. Execution-latency simulation
+315. Order-book snapshot replay
+316. Trade-tape replay
+317. Slippage simulation
+318. Fee simulation
+319. Funding simulation
+320. Borrow/carry cost interface
+321. Partial-fill simulation
+322. Cancel/replace simulation
+323. Rejected-order simulation
+324. Network-failure simulation
+325. Exchange-outage simulation
+326. Signal-expiry replay
+327. Risk-limit replay
+328. Kill-switch replay
+329. Daily-reset replay
+330. Position-state reconstruction
+331. Balance-state reconstruction
+332. PnL reconstruction
+333. Realized/unrealized PnL separation
+334. Mark-price policy
+335. Benchmark-return calculation
+336. Event-window attribution
+337. Trade attribution
+338. Signal attribution
+339. Source attribution
+340. Strategy attribution
+341. Fee-adjusted return
+342. Slippage-adjusted return
+343. Risk-adjusted return
+344. Maximum drawdown
+345. Calmar ratio
+346. Sharpe-like metric
+347. Sortino-like metric
+348. Profit factor
+349. Expectancy
+350. Win-rate confidence interval
 
-### Signal quality
-281. Signal component registry
-282. Component normalization
-283. Component weighting
-284. Weight versioning
-285. Weight bounds
-286. Score range enforcement
-287. Confidence calibration interface
-288. Probability calibration
-289. Reliability tracking
-290. Signal attribution
-291. Feature contribution logging
-292. Missing-feature penalty
-293. Stale-feature penalty
-294. Contradictory-feature penalty
-295. Extreme-feature sanity check
-296. Outlier feature clipping
-297. Feature winsorization interface
-298. Feature freshness metadata
-299. Feature provenance metadata
-300. Deterministic signal fingerprint
+### Validation and robustness
+351. Walk-forward splits
+352. Purged time-series splits
+353. Embargo periods
+354. Parameter-free baseline
+355. Buy-and-hold benchmark
+356. Event-naive benchmark
+357. Random-entry benchmark
+358. Source-ablation test
+359. Feature-ablation test
+360. Market-ablation test
+361. Latency-ablation test
+362. Slippage-ablation test
+363. Fee-ablation test
+364. Risk-limit-ablation test
+365. Threshold sensitivity sweep
+366. Freshness sensitivity sweep
+367. Source-weight sensitivity sweep
+368. Market-confirmation sensitivity sweep
+369. Already-priced-in sensitivity sweep
+370. Position-size sensitivity sweep
+371. Leverage sensitivity sweep
+372. Stop-policy sensitivity sweep
+373. Take-profit sensitivity sweep
+374. Cooldown sensitivity sweep
+375. Holding-period sensitivity sweep
+376. Regime sensitivity sweep
+377. Monte Carlo trade-order shuffle
+378. Bootstrap return confidence
+379. Bootstrap drawdown confidence
+380. Worst-case slippage scenario
+381. Worst-case latency scenario
+382. Feed-outage scenario
+383. Duplicate-news scenario
+384. Contradictory-news scenario
+385. Rumor scenario
+386. Retraction scenario
+387. Correction scenario
+388. Market-crash scenario
+389. Flash-move scenario
+390. Low-liquidity scenario
+391. High-volatility scenario
+392. Correlated-position scenario
+393. API-error scenario
+394. Clock-skew scenario
+395. Restart-recovery scenario
+396. State-corruption scenario
+397. Partial-data scenario
+398. Unknown-event scenario
+399. Out-of-distribution-event scenario
+400. Research reproducibility manifest
 
 ## Safety invariant
-Tranche 3 strengthens market-data integrity and event-reaction measurement. It does not authorize live execution or allow a signal to bypass risk controls.
+Tranche 4 improves research integrity and prevents backtests from overstating an edge. Historical results must include realistic latency, fees, slippage, missing data, and risk constraints. Live execution remains opt-in.
