@@ -2,117 +2,115 @@
 
 ## Tranche 1: 100 upgrades
 
-This tranche hardens the news-driven Lighter trading architecture without enabling live trading by default.
+Completed baseline hardening: news normalization, deduplication, entity detection, Lighter market-data interfaces, signal gates, risk limits, and execution safety.
 
-### Signal / news
-1. Canonical news schema
-2. Source identifier normalization
-3. Publisher credibility field
-4. Publication timestamp validation
-5. Ingestion timestamp
-6. Source latency measurement
-7. Headline normalization
-8. Body normalization
-9. Duplicate headline detection
-10. Near-duplicate detection
-11. Event ID generation
-12. Entity extraction interface
-13. Asset alias registry
-14. Ticker normalization
-15. Symbol confidence score
-16. Country/entity mapping
-17. Event-type taxonomy
-18. Sentiment score bounds
-19. Direction confidence
-20. Surprise score
-21. Freshness decay
-22. Source agreement score
-23. Contradiction detection
-24. Rumor flag
-25. Correction flag
-26. Retraction handling
-27. Article revision handling
-28. Paywall metadata
-29. Missing-content handling
-30. Unicode-safe normalization
+## Tranche 2: upgrades 101–200
 
-### Market intelligence
-31. Lighter market discovery
-32. Market metadata cache
-33. Tick stream adapter
-34. Order-book snapshot adapter
-35. Order-book delta adapter
-36. Best-bid tracking
-37. Best-ask tracking
-38. Mid-price calculation
-39. Spread calculation
-40. Spread guard
-41. Depth calculation
-42. Slippage estimator
-43. Volatility estimator
-44. Volume anomaly detector
-45. Price-jump detector
-46. Price-impact estimator
-47. Market freshness guard
-48. Stale-book guard
-49. Cross-source price validation
-50. Signal/price timestamp alignment
+### News intelligence
+101. Multi-source feed interface
+102. RSS ingestion adapter
+103. Atom ingestion adapter
+104. JSON feed adapter
+105. Webhook ingestion interface
+106. Feed health monitor
+107. Source heartbeat tracking
+108. Source outage detection
+109. Source recovery detection
+110. Per-source latency histogram
+111. Article canonical URL normalization
+112. URL tracking-parameter stripping
+113. Language detection interface
+114. Translation interface
+115. Translation confidence field
+116. Title/body disagreement detection
+117. Author identity normalization
+118. Publisher ownership metadata
+119. Source independence classification
+120. Syndication-chain detection
+121. First-seen source tracking
+122. Earliest-publication timestamp
+123. Republication detection
+124. Quote-origin detection
+125. Primary-source preference
+126. Official-announcement preference
+127. Social-post source classification
+128. Screenshot-only evidence flag
+129. Unverifiable-claim flag
+130. Source blacklist
+131. Source allowlist
+132. Source weighting configuration
+133. Source-specific parser versioning
+134. Parser failure quarantine
+135. Malformed-feed quarantine
+136. Content-size limits
+137. HTML/script stripping
+138. Encoding validation
+139. MIME-type validation
+140. Content hash generation
+141. Semantic fingerprint generation
+142. Event-cluster assignment
+143. Event-cluster merge
+144. Event-cluster split
+145. Event chronology ordering
+146. Event supersession links
+147. Event correction propagation
+148. Event retraction propagation
+149. Event confidence decay
+150. Event archival policy
 
-### Strategy
-51. Event-to-signal interface
-52. Signal lifecycle states
-53. Signal expiry
-54. Minimum confidence threshold
-55. Minimum surprise threshold
-56. Already-priced-in penalty
-57. Momentum confirmation
-58. Mean-reversion veto
-59. Volatility veto
-60. Liquidity veto
-61. Conflicting-signal veto
-62. Duplicate-trade suppression
-63. Cooldown window
-64. Per-asset signal limit
-65. Global signal limit
-66. Position-aware signal scoring
-67. Exposure-aware scoring
-68. Correlation-aware scoring
-69. Market-regime flag
-70. Regime-dependent thresholds
+### Entity and market mapping
+151. Project-name alias table
+152. Protocol-name alias table
+153. Company-name alias table
+154. Person-name alias table
+155. Exchange-name alias table
+156. Chain-name alias table
+157. Token contract alias table
+158. Lighter market-index mapping
+159. Cross-chain asset mapping
+160. Wrapped-asset mapping
+161. Perpetual-vs-spot distinction
+162. Long/short semantic normalization
+163. Quote-currency normalization
+164. Stablecoin classification
+165. Asset-category classification
+166. Governance-token classification
+167. Exchange-token classification
+168. L1/L2 classification
+169. DeFi classification
+170. Meme-token classification
+171. AI-token classification
+172. Infrastructure-token classification
+173. Event relevance matrix
+174. Direct-exposure score
+175. Indirect-exposure score
+176. Sector spillover score
+177. Competitor spillover score
+178. Narrative spillover score
+179. Market-beta adjustment
+180. BTC-beta adjustment
+181. ETH-beta adjustment
+182. Sector-beta adjustment
+183. Correlation-window selection
+184. Correlation confidence
+185. Mapping ambiguity veto
 
-### Risk
-71. Global kill switch
-72. Per-market kill switch
-73. Maximum position size
-74. Maximum notional exposure
-75. Maximum leverage
-76. Maximum daily loss
-77. Maximum consecutive losses
-78. Maximum open positions
-79. Maximum order rate
-80. Maximum cancel rate
-81. Drawdown circuit breaker
-82. Volatility circuit breaker
-83. Spread circuit breaker
-84. Liquidity circuit breaker
-85. API-error circuit breaker
-86. Clock-skew guard
-87. Stale-signal guard
-88. Stale-account guard
-89. Balance sanity check
-90. Available-margin sanity check
-
-### Execution
-91. Lighter signer adapter
-92. Order-intent schema
-93. Client order ID generation
-94. Idempotent submission
-95. Request timeout
-96. Retry classification
-97. Exponential backoff
-98. Retry jitter
-99. Order acknowledgement validation
-100. Execution audit record
+### Event intelligence
+186. Regulatory-event classifier
+187. Listing-event classifier
+188. Delisting-event classifier
+189. Partnership-event classifier
+190. Investment-event classifier
+191. Funding-event classifier
+192. Product-launch classifier
+193. Protocol-upgrade classifier
+194. Security-incident classifier
+195. Exploit-event classifier
+196. ETF/event classifier
+197. Macro-event classifier
+198. Political-statement classifier
+199. Exchange-outage classifier
+200. Bankruptcy/insolvency classifier
 
 ## Safety invariant
-Live execution remains explicitly opt-in. No upgrade in this tranche should bypass risk controls or silently enable live orders.
+Tranche 2 expands intelligence and mapping only. Live execution remains opt-in, and no classifier may directly bypass the signal/risk pipeline.
