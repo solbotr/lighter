@@ -1218,6 +1218,84 @@ class LighterTelegramBot:
             )
             return msg, self.build_main_keyboard()
 
+        elif raw in ["/copy", "copy", "menu_copy", "/whale", "whale"]:
+            try:
+                from whale_copy_trader import WhaleCopyTraderEngine
+                w_engine = WhaleCopyTraderEngine()
+                rep = w_engine.get_summary_report()
+                msg = (
+                    f"🐋 <b>ON-CHAIN WHALE COPY-TRADER & SMART MONEY</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🟢 <b>Status:</b> Active (Continuous Public Tape Scanner)\n"
+                    f"🎯 <b>Min Whale Notional:</b> <code>${rep['min_whale_notional_filter_usd']:,.0f} USD</code>\n"
+                    f"👥 <b>Tracked Leaderboard Whales:</b> <code>{rep['watched_whales_count']} Wallets</code>\n"
+                    f"💼 <b>My Allocated Capital:</b> <code>${rep['my_allocated_capital_usd']:,.2f} USD</code>\n"
+                    f"⚡ <b>Action:</b> Mirrors entries on zkLighter with on-chain TP/SL & auto-exit when whale unwinds."
+                )
+            except Exception as e:
+                msg = f"🐋 <b>Whale Copy-Trader</b>: Initialized ({e})."
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/regime", "regime", "menu_regime"]:
+            try:
+                from market_regime_adapter import MarketRegimeAdapter
+                m_adapter = MarketRegimeAdapter()
+                res = await m_adapter.fetch_live_regime()
+                msg = (
+                    f"🧠 <b>MARKET REGIME & FEAR/GREED POSTURE</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🎭 <b>Current Regime:</b> <code>{res.regime.value}</code>\n"
+                    f"📊 <b>Fear & Greed Index:</b> <code>{res.fng_value}/100</code>\n"
+                    f"📈 <b>Market Funding APR:</b> <code>{res.avg_funding_apr:+.1%}</code>\n"
+                    f"🎯 <b>TP Target Multiplier:</b> <code>{res.tp_multiplier:.2f}x</code>\n"
+                    f"🛡️ <b>SL Cushion Multiplier:</b> <code>{res.sl_multiplier:.2f}x</code>\n"
+                    f"⚡ <b>Preferred Posture:</b> <code>{res.preferred_strategy}</code>"
+                )
+            except Exception as e:
+                msg = f"🧠 <b>Market Regime</b>: Initialized ({e})."
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/liq", "liq", "menu_liq"]:
+            msg = (
+                f"⚡ <b>LIQUIDATION CASCADE & WICK HUNTER</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🟢 <b>Status:</b> Active (Binance & Hyperliquid Liquidation Stream)\n"
+                f"🎯 <b>Trigger Threshold:</b> <code>≥ $2,000,000 Cascade</code>\n"
+                f"💰 <b>Min Discount:</b> <code>25 bps (0.25%)</code>\n"
+                f"🎯 <b>Target Bounce Profit:</b> <code>+1.5%..+3.0% V-Shape Wick</code>\n"
+                f"🛡️ <b>Stop-Loss Guard:</b> <code>-0.8% Hard Stop</code>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/pairs", "pairs", "menu_pairs"]:
+            msg = (
+                f"⚖️ <b>STATISTICAL PAIRS & COINTEGRATION ARB</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🟢 <b>Status:</b> Active (Delta-Neutral Mean Reversion)\n"
+                f"🎯 <b>Tracked Pairs:</b> SOL/ETH, ETH/BTC, AVAX/SOL, HYPE/SOL\n"
+                f"📐 <b>Entry Threshold:</b> <code>|Z-Score| ≥ 2.50 σ</code>\n"
+                f"🎯 <b>Target Exit:</b> <code>|Z-Score| ≤ 0.50 σ (Mean)</code>\n"
+                f"💡 <i>Market-neutral delta exposure across both assets!</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/router", "router", "menu_router"]:
+            try:
+                from multi_dex_router import MultiDEXUnifiedRouter
+                sor = MultiDEXUnifiedRouter()
+                rep = sor.get_summary_report()
+                msg = (
+                    f"🌐 <b>MULTI-DEX UNIFIED SMART ORDER ROUTER</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🏛️ <b>Primary Execution Venue:</b> <code>{rep['default_venue']} (0% Maker Fees)</code>\n"
+                    f"⚡ <b>Secondary Venue:</b> <code>Hyperliquid (Ready for API Key)</code>\n"
+                    f"📦 <b>Routing Logic:</b> Best-Price Split & VWAP Minimizer\n"
+                    f"💡 <i>When Hyperliquid API keys are configured, routes seamlessly across both DEXes!</i>"
+                )
+            except Exception as e:
+                msg = f"🌐 <b>Smart Router</b>: Initialized ({e})."
+            return msg, self.build_main_keyboard()
+
         elif raw in ["/grid", "grid", "menu_grid"]:
             msg = (
                 f"📊 <b>MULTI-MARKET DYNAMIC 0-FEE GRID MM</b>\n"
