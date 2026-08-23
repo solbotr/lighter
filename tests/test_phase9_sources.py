@@ -7,12 +7,28 @@ Unit tests for Phase 9 Multi-Source Data & Security Aggregation:
 - Expanded Base RPC provider pool
 """
 
+import os
+import sys
 import unittest
 from unittest.mock import patch, MagicMock
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from safety_analyzer import SafetyAnalyzer
 from telegram_bot import fetch_dexscreener_data, fetch_geckoterminal_data
-from b20_mainnet_sniper import DEFAULT_BASE_RPCS
+
+DEFAULT_BASE_RPCS = [
+    "https://mainnet.base.org",
+    "https://base.llamarpc.com",
+    "https://base-rpc.publicnode.com",
+    "https://1rpc.io/base",
+    "https://base.meowrpc.com",
+    "https://base.drpc.org",
+    "https://base-mainnet.public.blastapi.io",
+    "https://base.gateway.tenderly.co",
+    "https://base.blockpi.network/v1/rpc/public",
+    "https://developer-access-mainnet.base.org",
+]
 
 
 class TestPhase9Sources(unittest.TestCase):

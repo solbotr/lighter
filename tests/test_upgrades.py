@@ -1,7 +1,7 @@
 import unittest
 from early_detection import predict_uniswap_v3_pool_address
 
-class TestB20Upgrades(unittest.TestCase):
+class TestUniswapUpgrades(unittest.TestCase):
     def test_predict_uniswap_v3_pool_address(self):
         # Uniswap V3 Factory on Base: 0x33128a8fC17869897dcE68Ed026d694621f6FDfD
         # WETH on Base: 0x4200000000000000000000000000000000000006
