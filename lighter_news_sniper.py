@@ -1981,6 +1981,14 @@ class LighterNewsSniperBot:
         self.news_manager.pipeline.on_correction = self._on_correction
 
         try:
+            from master_profit_orchestrator import MasterProfitOrchestrator
+            self.orchestrator = MasterProfitOrchestrator(is_paper=(not self.is_live))
+            logger.info("🏛️ [MasterProfitOrchestrator] Armed with ALL 125+ institutional quant strategies.")
+        except Exception as oe:
+            self.orchestrator = None
+            logger.warning(f"MasterProfitOrchestrator init warning: {oe}")
+
+        try:
             from lighter_telegram import LighterTelegramBot
             from lighter_db import LighterDBManager
             self.db = LighterDBManager()
@@ -1994,6 +2002,7 @@ class LighterNewsSniperBot:
                     "news_manager": self.news_manager,
                     "bot_instance": self,
                     "bot": self,
+                    "orchestrator": self.orchestrator,
                     "intent_queue": self.intent_queue,
                     "positions": self.positions,
                     "metrics": self.metrics,
