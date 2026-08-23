@@ -1296,6 +1296,29 @@ class LighterTelegramBot:
                 msg = f"🌐 <b>Smart Router</b>: Initialized ({e})."
             return msg, self.build_main_keyboard()
 
+        elif raw in ["/hl", "hl", "menu_hl", "/hyperliquid", "hyperliquid"]:
+            try:
+                from hyperliquid_execution import HyperliquidExecutionClient
+                hl_client = HyperliquidExecutionClient()
+                val = await hl_client.get_collateral_usd()
+                positions = await hl_client.get_active_positions()
+                msg = hl_client.format_status_report_html(val, positions)
+            except Exception as e:
+                msg = f"⚡ <b>Hyperliquid Dashboard</b>: Unable to query live state ({e})."
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🔄 Refresh Hyperliquid", "callback_data": "menu_hl"},
+                        {"text": "⚡ Funding Heatmap", "callback_data": "menu_funding"},
+                    ],
+                    [
+                        {"text": "🏦 zkLighter Shards", "callback_data": "menu_subaccounts"},
+                        {"text": "🏠 Main Menu", "callback_data": "/menu"},
+                    ],
+                ]
+            }
+            return msg, keyboard
+
         elif raw in ["/grid", "grid", "menu_grid"]:
             msg = (
                 f"📊 <b>MULTI-MARKET DYNAMIC 0-FEE GRID MM</b>\n"
