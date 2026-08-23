@@ -428,9 +428,9 @@ class MaxSizeExecutionEngine:
     async def fetch_order_catalog(self) -> List[Dict[str, Any]]:
         try:
             session = await self._http_session()
-            async with session.get(f"{self.base_url}/api/v1/orderBookDetails") as resp:
+            async with session.get(f"{self.base_url}/api/v1/orderBooks") as resp:
                 if resp.status != 200:
-                    logger.warning("orderBookDetails HTTP %s", resp.status)
+                    logger.warning("orderBooks HTTP %s", resp.status)
                     return []
                 data = await resp.json(content_type=None)
             books = data.get("order_book_details") or data.get("order_books") or data.get("data") or []
