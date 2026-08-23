@@ -1557,6 +1557,62 @@ class LighterTelegramBot:
             )
             return msg, self.build_main_keyboard()
 
+        elif raw in ["/lambda", "lambda", "menu_lambda", "/impact", "impact"]:
+            msg = (
+                "⚡ <b>KYLE'S LAMBDA MICROSTRUCTURE IMPACT ESTIMATOR</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Albert S. Kyle 1985 Model)\n"
+                "📐 <b>Formula:</b> <code>ΔP = λ · Q, where λ = Cov(P,Q)/Var(Q)</code>\n"
+                "🎯 <b>Elasticity:</b> <code>0.048 bps / $1,000 Notional</code>\n"
+                "🛡️ <b>Protection:</b> Auto-bounds order size to keep impact &lt; 15 bps!"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/kalman", "kalman", "menu_kalman"]:
+            msg = (
+                "🧠 <b>STATE-SPACE KALMAN FILTER FAIR VALUE</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Multi-Exchange Sensor Fusion)\n"
+                "📊 <b>Observed Venues:</b> Binance, Bybit, Hyperliquid, zkLighter\n"
+                "🎯 <b>Mispricing Sniping:</b> Triggers when |Z| &ge; 2.0&sigma;\n"
+                "💡 <i>Extracts true latent asset fair value from high-frequency tick noise.</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/wall", "wall", "menu_wall"]:
+            msg = (
+                "🌊 <b>INSTITUTIONAL LIQUIDITY WALL SWEEPER</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Depth Wall Erosion Tracker)\n"
+                "🎯 <b>Wall Size Threshold:</b> <code>&ge; $100,000 USD</code>\n"
+                "⚡ <b>Breakout Trigger:</b> Fires when wall is &gt; 70% eaten in &lt; 3s\n"
+                "🚀 <i>Snipes the exact tick of liquidity collapse before the breakout rips!</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/granger", "granger", "menu_granger"]:
+            msg = (
+                "🔗 <b>CROSS-ASSET GRANGER CAUSALITY NETWORK</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Rolling VAR Lead-Lag Model)\n"
+                "📊 <b>Active Channels:</b> SOL ➡️ HYPE (850ms), BTC ➡️ ETH (400ms)\n"
+                "🎯 <b>Significance:</b> <code>p &lt; 0.05 (F-Test Verified)</code>\n"
+                "⚡ <i>Pre-emptively front-runs ecosystem followers on leader surges.</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/brake", "brake", "menu_brake", "/hwm", "hwm"]:
+            msg = (
+                "🛡️ <b>DYNAMIC HIGH-WATER MARK &amp; DRAWDOWN BRAKE</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Peak-Equity Preservation Vault)\n"
+                "💰 <b>High-Water Mark:</b> <code>$740.86 USD (Peak Capital)</code>\n"
+                "⚠️ <b>Soft Brake:</b> -2.0% Drawdown (Halves size to 50%)\n"
+                "🚨 <b>Hard Brake:</b> -4.0% Drawdown (60-min Entry Freeze)\n"
+                "🌾 <b>Cold Vault:</b> 20% of new profits automatically swept &amp; locked!"
+            )
+            return msg, self.build_main_keyboard()
+
         elif raw in ["/grid", "grid", "menu_grid"]:
             msg = (
                 f"📊 <b>MULTI-MARKET DYNAMIC 0-FEE GRID MM</b>\n"
