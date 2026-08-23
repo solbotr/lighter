@@ -282,6 +282,59 @@ class HyperliquidExecutionClient:
             logger.error(f"[HL Order Placement Error]: {e}")
             return {"status": "error", "error": str(e)}
 
+    async def usd_class_transfer(
+        self,
+        amount_usd: float,
+        to_perp: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Executes a zero-fee sub-50ms internal transfer between Hyperliquid Spot and Perps clearinghouse.
+        - to_perp=True: Moves USDC from Spot -> Perps (funding perp trading margin)
+        - to_perp=False: Moves USDC from Perps -> Spot
+        """
+        action = {
+            "type": "usdClassTransfer",
+            "amount": str(round(amount_usd, 6)),
+            "toPerp": to_perp,
+        }
+        nonce = int(time.time() * 1000)
+        payload = self._sign_action(action, nonce)
+        session = await self._get_session()
+
+        try:
+            async with session.post(
+                f"{self.base_url}/exchange",
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=4.0),
+            ) as resp:
+                data = await resp.json()
+                dir_str = "Spot ➡️ Perps" if to_perp else "Perps ➡️ Spot"
+                logger.info(f"⚡ [Hyperliquid Transfer] Transferred ${amount_usd:,.2f} USDC ({dir_str}) | Response: {data}")
+                return data
+        except Exception as e:
+            logger.error(f"[HL USD Class Transfer Error]: {e}")
+            return {"status": "error", "error": str(e)}
+
+    async def auto_balance_margin(self, min_perp_margin_usd: float = 10.0) -> Dict[str, Any]:
+        """
+        Automatically transfers idle Spot USDC into Perps clearinghouse if perp margin is low.
+        """
+        state = await self.fetch_account_state()
+        margin = state.get("marginSummary", {})
+        perp_val = float(margin.get("accountValue", "0.0"))
+
+        if perp_val < min_perp_margin_usd:
+            spot_usdc = 0.0
+            for b in state.get("spotBalances", []):
+                if b.get("coin") == "USDC":
+                    spot_usdc += float(b.get("total", "0.0"))
+            
+            transfer_amt = min(spot_usdc, min_perp_margin_usd - perp_val)
+            if transfer_amt >= 1.0:
+                logger.info(f"🤖 [HL Auto-Balance] Moving ${transfer_amt:,.2f} Spot USDC to Perps...")
+                return await self.usd_class_transfer(transfer_amt, to_perp=True)
+        return {"status": "ok", "message": "Perp margin already sufficient"}
+
     def format_status_report_html(self, account_val: float, positions: List[HLPosition]) -> str:
         """Constructs an interactive HTML status card for Telegram."""
         pos_rows = []

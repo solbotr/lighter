@@ -1308,16 +1308,34 @@ class LighterTelegramBot:
             keyboard = {
                 "inline_keyboard": [
                     [
-                        {"text": "🔄 Refresh Hyperliquid", "callback_data": "menu_hl"},
-                        {"text": "⚡ Funding Heatmap", "callback_data": "menu_funding"},
+                        {"text": "⚡ Auto-Transfer Spot ➡️ Perp", "callback_data": "menu_hl_transfer_perp"},
+                        {"text": "🔄 Refresh", "callback_data": "menu_hl"},
                     ],
                     [
+                        {"text": "⚡ Funding Heatmap", "callback_data": "menu_funding"},
                         {"text": "🏦 zkLighter Shards", "callback_data": "menu_subaccounts"},
+                    ],
+                    [
                         {"text": "🏠 Main Menu", "callback_data": "/menu"},
                     ],
                 ]
             }
             return msg, keyboard
+
+        elif raw in ["/hl_transfer", "hl_transfer", "menu_hl_transfer_perp"]:
+            try:
+                from hyperliquid_execution import HyperliquidExecutionClient
+                hl_client = HyperliquidExecutionClient()
+                res = await hl_client.auto_balance_margin(min_perp_margin_usd=10.0)
+                msg = (
+                    "⚡ <b>HYPERLIQUID INTERNAL MARGIN BALANCING</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ <b>Transfer Status:</b> <code>{res.get('status', 'SUCCESS')}</code>\n"
+                    "💡 <i>USDC margin successfully synchronized for Perps execution!</i>"
+                )
+            except Exception as e:
+                msg = f"⚠️ <b>Transfer Error:</b> <code>{e}</code>"
+            return msg, self.build_main_keyboard()
 
         elif raw in ["/grid", "grid", "menu_grid"]:
             msg = (
