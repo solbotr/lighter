@@ -1337,6 +1337,39 @@ class LighterTelegramBot:
                 msg = f"⚠️ <b>Transfer Error:</b> <code>{e}</code>"
             return msg, self.build_main_keyboard()
 
+        elif raw.startswith("/tweet") or raw.startswith("tweet "):
+            tweet_text = text.replace("/tweet", "").replace("tweet", "").strip()
+            if not tweet_text:
+                msg = (
+                    "🐦 <b>TWITTER / X AUTO-BROADCASTER</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "📝 <b>Usage:</b> <code>/tweet &lt;your message&gt;</code>\n"
+                    "💡 <i>Example:</i> <code>/tweet 🚀 Lighter bot is live on zkLighter and Hyperliquid!</code>"
+                )
+            else:
+                try:
+                    from twitter_poster import TwitterPosterEngine
+                    poster = TwitterPosterEngine()
+                    res = await poster.post_tweet_async(tweet_text)
+                    if res.success:
+                        msg = (
+                            "🐦 <b>TWEET POSTED SUCCESSFULLY!</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🆔 <b>Tweet ID:</b> <code>{res.tweet_id}</code>\n"
+                            f"📄 <b>Content:</b> <i>{res.text}</i>\n"
+                            "🔗 <b>View:</b> <a href='https://x.com/'>View on X</a>"
+                        )
+                    else:
+                        msg = (
+                            "⚠️ <b>TWITTER POST FAILED</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"<b>Error:</b> <code>{res.error}</code>\n"
+                            "💡 <i>Tip: Ensure your X App has 'Read and write' permissions and regenerate your Access Token & Secret.</i>"
+                        )
+                except Exception as e:
+                    msg = f"⚠️ <b>Twitter Error:</b> <code>{e}</code>"
+            return msg, self.build_main_keyboard()
+
         elif raw in ["/grid", "grid", "menu_grid"]:
             msg = (
                 f"📊 <b>MULTI-MARKET DYNAMIC 0-FEE GRID MM</b>\n"
