@@ -125,9 +125,11 @@ class HyperliquidExecutionClient:
             logger.debug(f"[HL Meta Init]: {e}")
 
     async def fetch_account_state(self) -> Dict[str, Any]:
-        """Queries clearinghouse state, margin, equity, and positions."""
+        """Queries clearinghouse state, spot balances, margin, equity, and positions."""
         session = await self._get_session()
         payload = {"type": "clearinghouseState", "user": self.master_wallet}
+        spot_payload = {"type": "spotClearinghouseState", "user": self.master_wallet}
+        result: Dict[str, Any] = {}
         try:
             async with session.post(
                 f"{self.base_url}/info",
@@ -135,16 +137,37 @@ class HyperliquidExecutionClient:
                 timeout=aiohttp.ClientTimeout(total=4.0),
             ) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    result = await resp.json()
         except Exception as e:
             logger.error(f"[HL Account State Fetch Error]: {e}")
-        return {}
+
+        # Spot balances
+        try:
+            async with session.post(
+                f"{self.base_url}/info",
+                json=spot_payload,
+                timeout=aiohttp.ClientTimeout(total=4.0),
+            ) as resp:
+                if resp.status == 200:
+                    spot_data = await resp.json()
+                    result["spotBalances"] = spot_data.get("balances", [])
+        except Exception as e:
+            logger.debug(f"[HL Spot State Fetch Error]: {e}")
+
+        return result
 
     async def get_collateral_usd(self) -> float:
-        """Returns current Hyperliquid account value in USD."""
+        """Returns total combined Hyperliquid account value (Perps + Spot USDC) in USD."""
         state = await self.fetch_account_state()
         margin = state.get("marginSummary", {})
-        return float(margin.get("accountValue", "0.0"))
+        perp_val = float(margin.get("accountValue", "0.0"))
+        spot_val = 0.0
+        for b in state.get("spotBalances", []):
+            if b.get("coin") == "USDC":
+                spot_val += float(b.get("total", "0.0"))
+            elif b.get("coin") == "USDH":
+                spot_val += float(b.get("total", "0.0"))
+        return perp_val + spot_val
 
     async def get_active_positions(self) -> List[HLPosition]:
         """Returns list of all active open positions."""
