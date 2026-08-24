@@ -1,6 +1,11 @@
 import asyncio
+import os
+import sys
 import pytest
 import time
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from strategy_circuit_backup import (
     StrategyCircuitBackupManager,
     StrategyHealthStatus,
