@@ -299,6 +299,37 @@ def tg_send_photo(
     return False
 
 
+def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
+    """Formats live/paper trade fill notification card."""
+    asset = result.get("asset", "UNK")
+    side = result.get("side", "BUY/LONG")
+    entry_p = float(result.get("entry_price") or 0.0)
+    size = float(result.get("size_eth") or 0.0)
+    notional = float(result.get("notional_usd") or (size * entry_p))
+    tp = float(result.get("tp_target_price") or 0.0)
+    sl = float(result.get("sl_price") or 0.0)
+    tp_pct = float(result.get("tp_pct") or 2.5)
+    sl_pct = float(result.get("sl_pct") or 1.5)
+    mode = result.get("mode", "LIVE_MAINNET")
+    is_live = "LIVE" in str(mode).upper()
+    emoji = "🟢" if side.startswith("BUY") else "🔴"
+
+    head_snippet = f"\n📰 <b>Catalyst:</b> <i>{headline[:100]}</i>" if headline else ""
+
+    return (
+        f"🚀 <b>NEW POSITION OPENED</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>Asset:</b> <code>{asset}</code> ({side})\n"
+        f"{emoji} <b>Mode:</b> <code>{'⚡ LIVE zkLighter' if is_live else '🧪 PAPER'}</code>\n"
+        f"💵 <b>Size:</b> <code>{size} {asset}</code> (~${notional:.2f} USD)\n"
+        f"⚡ <b>Entry:</b> <code>${entry_p:.4f}</code>\n"
+        f"🎯 <b>Take Profit:</b> <code>${tp:.4f}</code> (+{tp_pct:.1f}%)\n"
+        f"🛑 <b>Stop Loss:</b> <code>${sl:.4f}</code> (-{sl_pct:.1f}%){head_snippet}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>24/7 Watchdog armed. Multi-stage TP scale-out active.</i>"
+    )
+
+
 def format_daily_pnl_report(stats: Dict[str, Any], is_paper_mode: bool = False) -> str:
     """Formats institutional 24h Daily Performance & PnL Report."""
     daily_pnl = stats.get("daily_realized_pnl_usd", 0.0)

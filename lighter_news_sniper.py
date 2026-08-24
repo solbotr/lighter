@@ -2135,8 +2135,8 @@ class LighterNewsSniperBot:
         if len(self.recent_news) > 50:
             self.recent_news.pop(0)
 
-        # Broadcast breaking high-conviction headlines to Telegram if enabled
-        if os.getenv("TELEGRAM_NEWS_BROADCAST", "true").lower() in ("true", "1", "yes") and event.confidence >= 0.75:
+        # News ingestion runs silently in background. Telegram alerts only on executed trades.
+        if os.getenv("TELEGRAM_NEWS_BROADCAST", "false").lower() in ("true", "1", "yes") and event.confidence >= 0.95:
             emoji = "🟢" if event.direction == "BULLISH" else ("🔴" if event.direction == "BEARISH" else "⚪")
             try:
                 from lighter_telegram import tg_send
