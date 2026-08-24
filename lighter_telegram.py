@@ -244,6 +244,10 @@ def tg_send(text: str, reply_markup: Optional[dict] = None, block: bool = False)
     Places alert onto background queue in < 0.01ms and returns immediately.
     Trading engine NEVER waits or stalls if Telegram is down.
     """
+    # Prevent unit tests from dispatching mock test messages to live Telegram
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+
     try:
         from poke_notifier import poke_send
         poke_send(text)
@@ -306,13 +310,21 @@ def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
     entry_p = float(result.get("entry_price") or 0.0)
     size = float(result.get("size_eth") or 0.0)
     notional = float(result.get("notional_usd") or (size * entry_p))
-    tp = float(result.get("tp_target_price") or 0.0)
-    sl = float(result.get("sl_price") or 0.0)
     tp_pct = float(result.get("tp_pct") or 2.5)
     sl_pct = float(result.get("sl_pct") or 1.5)
+
+    is_buy = side.startswith("BUY") or side.startswith("LONG")
+    tp = float(result.get("tp_target_price") or result.get("tp_price") or 0.0)
+    if tp <= 0.0 and entry_p > 0.0:
+        tp = entry_p * (1.0 + (tp_pct / 100.0) if is_buy else 1.0 - (tp_pct / 100.0))
+
+    sl = float(result.get("sl_price") or 0.0)
+    if sl <= 0.0 and entry_p > 0.0:
+        sl = entry_p * (1.0 - (sl_pct / 100.0) if is_buy else 1.0 + (sl_pct / 100.0))
+
     mode = result.get("mode", "LIVE_MAINNET")
     is_live = "LIVE" in str(mode).upper()
-    emoji = "🟢" if side.startswith("BUY") else "🔴"
+    emoji = "🟢" if is_buy else "🔴"
 
     head_snippet = f"\n📰 <b>Catalyst:</b> <i>{headline[:100]}</i>" if headline else ""
 
