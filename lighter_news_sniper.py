@@ -2528,7 +2528,7 @@ class LighterNewsSniperBot:
             snap = self.tickers.get(symbol)
             price = item["entry_price"] or (snap.price if snap else 0.0)
             notional = float(item["size"]) * float(price or item["entry_price"] or 1.0)
-            if notional < 1.0:
+            if notional < 10.0:
                 logger.info("Ignoring residual exchange dust for %s: size=%s ($%.4f USD)", symbol, item["size"], notional)
                 continue
             if flatten:
