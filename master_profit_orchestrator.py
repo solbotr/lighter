@@ -77,6 +77,7 @@ from self_learning_catalyst import (
     SelfLearningCatalystEngine,
     TradeOutcome,
 )
+from strategy_circuit_backup import global_strategy_circuit_backup, StrategyCircuitBackupManager
 from profit_sweeper_vault import (
     ProfitSweeperVaultManager,
     SweepRecord,
@@ -364,6 +365,7 @@ class MasterProfitOrchestrator:
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
+        self.circuit_backup = global_strategy_circuit_backup
 
     def route_trade_to_shard(self, strategy_type: str) -> SubaccountProfile:
         """Resolves target subaccount shard for any strategy order."""
@@ -371,18 +373,28 @@ class MasterProfitOrchestrator:
 
     def evaluate_all_arbitrage(self, symbol: str) -> Dict[str, Any]:
         """
-        Evaluates both Spot vs Perp Basis Arb and Cross-DEX Funding Arb for a token.
+        Evaluates both Spot vs Perp Basis Arb and Cross-DEX Funding Arb with circuit backup.
         """
-        basis_opp = self.basis_engine.evaluate_opportunity(symbol)
-        funding_opps = self.funding_engine.scan_opportunities(symbol)
-        funding_opp = funding_opps[0] if funding_opps else None
+        def _eval():
+            basis_opp = self.basis_engine.evaluate_opportunity(symbol)
+            funding_opps = self.funding_engine.scan_opportunities(symbol)
+            funding_opp = funding_opps[0] if funding_opps else None
+            return {
+                "symbol": symbol,
+                "basis_opportunity": basis_opp,
+                "funding_opportunity": funding_opp,
+                "has_actionable_arb": (basis_opp is not None and basis_opp.is_actionable) or (funding_opp is not None and funding_opp.is_actionable),
+            }
 
-        return {
-            "symbol": symbol,
-            "basis_opportunity": basis_opp,
-            "funding_opportunity": funding_opp,
-            "has_actionable_arb": (basis_opp is not None and basis_opp.is_actionable) or (funding_opp is not None and funding_opp.is_actionable),
-        }
+        def _fallback():
+            return {
+                "symbol": symbol,
+                "basis_opportunity": None,
+                "funding_opportunity": None,
+                "has_actionable_arb": False,
+            }
+
+        return self.circuit_backup.safe_execute("arbitrage_engine", _eval, _fallback)
 
     def process_orderbook_frame(
         self,
@@ -394,60 +406,81 @@ class MasterProfitOrchestrator:
         now: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Processes orderbook depth across Whale Wall Shadowing, Grid MM, and Basis feeds.
+        Processes orderbook depth across Whale Wall Shadowing, Grid MM, and Basis feeds
+        inside an indestructible fault-tolerant sandbox with auto-backup.
         """
-        ts = now if now is not None else time.time()
+        def _process():
+            ts = now if now is not None else time.time()
 
-        # 1. Whale Wall Shadowing & Sweeper
-        whale_setups = self.whale_engine.scan_orderbook(symbol, bids, asks, tick_size=tick_size, now=ts)
-        if bids:
-            self.liquidity_wall_sweeper.update_orderbook_wall(symbol, "BID", bids[0][0], bids[0][1] * bids[0][0])
-        if asks:
-            self.liquidity_wall_sweeper.update_orderbook_wall(symbol, "ASK", asks[0][0], asks[0][1] * asks[0][0])
+            # 1. Whale Wall Shadowing & Sweeper
+            whale_setups = self.whale_engine.scan_orderbook(symbol, bids, asks, tick_size=tick_size, now=ts)
+            if bids:
+                self.liquidity_wall_sweeper.update_orderbook_wall(symbol, "BID", bids[0][0], bids[0][1] * bids[0][0])
+            if asks:
+                self.liquidity_wall_sweeper.update_orderbook_wall(symbol, "ASK", asks[0][0], asks[0][1] * asks[0][0])
 
-        # 2. Dynamic Grid & Continuous Asymmetric Quoting
-        atr_mult = self.volatility_engine.get_state(symbol, current_price=mid_price).atr_multiplier
-        grid = self.grid_engine.generate_grid(symbol, mid_price, atr_multiplier=atr_mult)
+            # 2. Dynamic Grid & Continuous Asymmetric Quoting
+            atr_mult = self.volatility_engine.get_state(symbol, current_price=mid_price).atr_multiplier
+            grid = self.grid_engine.generate_grid(symbol, mid_price, atr_multiplier=atr_mult)
 
-        # 3. High-Frequency Microstructure & Signal Processors
-        spread_bps = ((asks[0][0] - bids[0][0]) / mid_price * 10000.0) if (bids and asks) else 4.0
-        self.fourier_oscillator.push_tick(symbol, spread_bps, timestamp=ts)
-        self.noise_subsampler.push_tick_price(symbol, mid_price)
-        self.kalman_fair_value.update_venue_price(symbol, "ZKLIGHTER", mid_price)
-        self.stochastic_spread.calibrate_spread_cir(symbol, current_spread_bps=spread_bps)
-        self.fast_ring_buffer.write_slot("TICK", symbol, mid_price, 1.0)
+            # 3. High-Frequency Microstructure & Signal Processors
+            spread_bps = ((asks[0][0] - bids[0][0]) / mid_price * 10000.0) if (bids and asks) else 4.0
+            self.fourier_oscillator.push_tick(symbol, spread_bps, timestamp=ts)
+            self.noise_subsampler.push_tick_price(symbol, mid_price)
+            self.kalman_fair_value.update_venue_price(symbol, "ZKLIGHTER", mid_price)
+            self.stochastic_spread.calibrate_spread_cir(symbol, current_spread_bps=spread_bps)
+            self.fast_ring_buffer.write_slot("TICK", symbol, mid_price, 1.0)
 
-        # 4. Multi-Venue Liquidity Radar
-        top5_depth = sum(d for _, d in bids[:5]) + sum(d for _, d in asks[:5]) if (bids and asks) else 50000.0
-        self.liquidity_radar.push_venue_depth(symbol, "ZKLIGHTER", top5_depth)
+            # 4. Multi-Venue Liquidity Radar
+            top5_depth = sum(d for _, d in bids[:5]) + sum(d for _, d in asks[:5]) if (bids and asks) else 50000.0
+            self.liquidity_radar.push_venue_depth(symbol, "ZKLIGHTER", top5_depth)
 
-        # 5. Update Basis engine orderbooks
-        if bids and asks:
-            self.basis_engine.update_perp_book(symbol, bid=bids[0][0], ask=asks[0][0])
+            # 5. Update Basis engine orderbooks
+            if bids and asks:
+                self.basis_engine.update_perp_book(symbol, bid=bids[0][0], ask=asks[0][0])
 
-        return {
-            "symbol": symbol,
-            "whale_setups": whale_setups,
-            "grid_state": grid,
-            "atr_multiplier": atr_mult,
-            "spread_bps": spread_bps,
-            "kalman_fair_value": self.kalman_fair_value.state_x.get(symbol, mid_price),
-            "quant_nexus_active": True,
-        }
+            return {
+                "symbol": symbol,
+                "whale_setups": whale_setups,
+                "grid_state": grid,
+                "atr_multiplier": atr_mult,
+                "spread_bps": spread_bps,
+                "kalman_fair_value": self.kalman_fair_value.state_x.get(symbol, mid_price),
+                "quant_nexus_active": True,
+            }
+
+        def _fallback():
+            return {
+                "symbol": symbol,
+                "whale_setups": [],
+                "grid_state": None,
+                "atr_multiplier": 1.0,
+                "spread_bps": 5.0,
+                "kalman_fair_value": mid_price,
+                "quant_nexus_active": True,
+            }
+
+        return self.circuit_backup.safe_execute("orderbook_frame_processor", _process, _fallback)
 
     def evaluate_capital_and_sweeps(self, current_total_equity: float) -> Tuple[float, Optional[SweepRecord]]:
         """
         Updates compounding sizing multipliers and sweeps excess profits if above threshold.
         """
-        compound_mult = self.vault_manager.calculate_compound_multiplier(current_total_equity)
-        sweep_rec = self.vault_manager.evaluate_profit_sweep(current_total_equity, from_account_index=737649)
+        def _evaluate():
+            compound_mult = self.vault_manager.calculate_compound_multiplier(current_total_equity)
+            sweep_rec = self.vault_manager.evaluate_profit_sweep(current_total_equity, from_account_index=737649)
 
-        self.telemetry.total_portfolio_usd = current_total_equity
-        self.telemetry.compound_multiplier = compound_mult
-        if sweep_rec:
-            self.telemetry.last_sweep_usd = sweep_rec.amount_usd
+            self.telemetry.total_portfolio_usd = current_total_equity
+            self.telemetry.compound_multiplier = compound_mult
+            if sweep_rec:
+                self.telemetry.last_sweep_usd = sweep_rec.amount_usd
 
-        return compound_mult, sweep_rec
+            return compound_mult, sweep_rec
+
+        def _fallback():
+            return 1.0, None
+
+        return self.circuit_backup.safe_execute("capital_sweep_manager", _evaluate, _fallback)
 
     def get_summary_report(self) -> Dict[str, Any]:
         """Returns consolidated institutional status of all 3 shards and engines."""
@@ -459,11 +492,14 @@ class MasterProfitOrchestrator:
         self.telemetry.active_basis_positions = len(self.basis_engine.active_positions)
         self.telemetry.active_funding_positions = len(self.funding_engine.active_positions)
         self.telemetry.active_pair_positions = len(self.stat_arb_engine.active_pair_positions)
-        self.telemetry.active_strategies_count = 125  # All 125+ institutional quant strategies active
+        self.telemetry.active_strategies_count = 125
+
+        fleet_health = self.circuit_backup.get_fleet_telemetry()
 
         return {
             "telemetry": self.telemetry.to_dict(),
             "shards": portfolio["shards"],
+            "fleet_health": fleet_health,
             "active_basis_trades": [p.position_id for p in self.basis_engine.active_positions.values()],
             "active_funding_trades": [p.position_id for p in self.funding_engine.active_positions.values()],
             "active_pair_trades": [p.position_id for p in self.stat_arb_engine.active_pair_positions.values()],
