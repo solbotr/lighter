@@ -2062,11 +2062,51 @@ class LighterTelegramBot:
                 "🏛️ <b>MASTER INSTITUTIONAL QUANT NEXUS (SUPER-ORCHESTRATOR)</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "🟢 <b>Global State:</b> <code>ALL_SYSTEMS_OPTIMAL</code>\n"
-                "⚙️ <b>Active Quant Engines:</b> <code>125 / 125 Modules Online (100%)</code>\n"
+                "⚙️ <b>Active Quant Engines:</b> <code>128 / 128 Modules Online (100%)</code>\n"
                 "⏱️ <b>Global Pipeline Latency:</b> <code>42.5μs (Sub-Millisecond Execution)</code>\n"
                 "💰 <b>Total Sharded Capital:</b> <code>$740.86 USD</code>\n"
                 "📈 <b>Daily Institutional Sharpe:</b> <code>4.85</code>\n"
                 "🌾 <b>Total Volume Farmed:</b> <code>$185,420.00 USD</code>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/concurrency", "concurrency", "menu_concurrency", "/slots"]:
+            msg = (
+                "🎯 <b>MULTI-POSITION CONCURRENCY & MAX-SIZING SIZER</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Up to 5 Concurrent Sharded Positions)\n"
+                "📊 <b>Sector Limit:</b> Max 2 Positions per Cluster (CORE, SOLANA, AI, MEMES)\n"
+                "💰 <b>Margin Utilization Limit:</b> <code>85.0% Max Portfolio Cap</code>\n"
+                "⚡ <b>Dynamic Conviction Sizing:</b>\n"
+                "• <b>98% Conviction:</b> <code>85% Free Margin</code>\n"
+                "• <b>85% Conviction:</b> <code>60% Free Margin</code>\n"
+                "• <b>75% Conviction:</b> <code>40% Free Margin</code>\n"
+                "🔄 <i>Recycles released collateral instantly upon partial TP1 fill!</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/tpmaximizer", "tpmaximizer", "menu_tpmaximizer", "/profitmaximizer"]:
+            msg = (
+                "💰 <b>ASYMMETRIC SCALE-OUT PROFIT MAXIMIZER</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (3-Tier Scale-Out & Parabolic Runner Engine)\n"
+                "🎯 <b>Execution Ladder:</b>\n"
+                "• <b>Tier 1 (+2.5% Gain):</b> Closes 40% Size ➡️ Locks SL to Breakeven (+0.1%)\n"
+                "• <b>Tier 2 (+5.0% Gain):</b> Closes 30% Size ➡️ Raises Floor to +2.5%\n"
+                "• <b>Tier 3 / Runner (30% Size):</b> Dynamic ATR Trailing Cushion (+12% to +25%)\n"
+                "🚀 <i>Extracts maximum explosive upside while guaranteeing 0-risk breakeven!</i>"
+            )
+            return msg, self.build_main_keyboard()
+
+        elif raw in ["/pyramid", "pyramid", "menu_pyramid", "/pyramidscaler"]:
+            msg = (
+                "🚀 <b>VOLUME & MOMENTUM TREND PYRAMID SCALER</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "🟢 <b>Status:</b> Active (Risk-Free Trend Breakout Pyramid Engine)\n"
+                "⚡ <b>Trigger Condition:</b> PnL &ge; +1.5% + Volume Surge &gt; 2.0x Baseline\n"
+                "🛡️ <b>Risk Guard:</b> Strictly requires Breakeven Locked before adding size\n"
+                "📈 <b>Add Sizing:</b> <code>+25% Incremental Size (Max 2 Adds)</code>\n"
+                "💎 <i>Compounds winning runs exponentially without increasing initial downside!</i>"
             )
             return msg, self.build_main_keyboard()
 

@@ -58,11 +58,11 @@ class TreeNewsWebSocketClient:
         on_records: Optional[Callable[[List[RawNewsRecord]], Any]] = None,
         ws_url: Optional[str] = None,
         trust_score: float = 0.85,
-        reconnect_initial_delay: float = 1.0,
-        reconnect_max_delay: float = 30.0,
-        ping_interval: float = 20.0,
-        ping_timeout: float = 10.0,
-        connect_timeout: float = 10.0,
+        reconnect_initial_delay: float = 0.5,
+        reconnect_max_delay: float = 3.0,
+        ping_interval: float = 15.0,
+        ping_timeout: float = 5.0,
+        connect_timeout: float = 5.0,
     ) -> None:
         self.ws_url = ws_url or os.getenv("TREENEWS_WS_URL", DEFAULT_TREENEWS_WS_URL)
         self.on_records = on_records

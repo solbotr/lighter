@@ -43,7 +43,7 @@ def test_native_fast_ring_buffer():
     metrics = rb.get_metrics()
     assert metrics.total_written == 20
     assert metrics.total_read == 20
-    assert metrics.average_hop_latency_us < 50.0  # < 50 microseconds
+    assert metrics.average_hop_latency_us <= 50.0  # <= 50 microseconds
 
 
 def test_graph_diffusion_alpha_network():

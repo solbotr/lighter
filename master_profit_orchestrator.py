@@ -190,6 +190,11 @@ from stochastic_inventory_barrier_exit import StochasticInventoryBarrierExitEngi
 from zkrollup_mempool_arb_frontrunner import ZkRollupMempoolArbFrontrunner
 from master_institutional_quant_nexus import MasterInstitutionalQuantNexus
 
+# Phase 26 Multi-Position Concurrency & Profit Maximizers
+from multi_position_concurrency_engine import MultiPositionConcurrencyEngine
+from asymmetric_tp_maximizer import AsymmetricTPMaximizer
+from momentum_pyramid_scaler import MomentumPyramidScaler
+
 logger = logging.getLogger("MasterProfitOrchestrator")
 
 
@@ -351,6 +356,11 @@ class MasterProfitOrchestrator:
         self.barrier_exit = StochasticInventoryBarrierExitEngine()
         self.zk_mempool_arb = ZkRollupMempoolArbFrontrunner()
         self.quant_nexus = MasterInstitutionalQuantNexus()
+
+        # Phase 26 Multi-Position Concurrency & Profit Maximizers
+        self.concurrency_engine = MultiPositionConcurrencyEngine(max_concurrent_positions=5, max_total_margin_pct=85.0)
+        self.tp_maximizer = AsymmetricTPMaximizer(tp1_gain_pct=2.5, tp2_gain_pct=5.0, tp3_target_pct=12.0)
+        self.pyramid_scaler = MomentumPyramidScaler(min_profit_to_pyramid_pct=1.5, max_pyramid_adds=2, add_size_ratio=0.25)
 
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
