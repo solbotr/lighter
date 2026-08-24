@@ -41,7 +41,7 @@ def classify_with_body(headline: str, body: str) -> Tuple[str, str, float]:
             return "opec", "BEARISH", max(materiality, 0.62)
         if THEME_RATES.search(lead) or THEME_GOLD.search(lead) or THEME_COPPER.search(lead):
             return "macro", "BEARISH", max(materiality, 0.62)
-        return event_type, "BEARISH", materiality
+        return ("breakdown" if event_type in ("unknown", "") else event_type), "BEARISH", max(materiality, 0.65)
     if BULLISH_LEX.search(lead):
         if THEME_OIL.search(lead):
             return "opec", "BULLISH", max(materiality, 0.62)
@@ -49,7 +49,7 @@ def classify_with_body(headline: str, body: str) -> Tuple[str, str, float]:
             return "earnings", "BULLISH", max(materiality, 0.62)
         if THEME_RATES.search(lead) or THEME_GOLD.search(lead) or THEME_COPPER.search(lead):
             return "macro", "BULLISH", max(materiality, 0.62)
-        return event_type, "BULLISH", materiality
+        return ("surge" if event_type in ("unknown", "") else event_type), "BULLISH", max(materiality, 0.65)
     return event_type, direction, materiality
 
 

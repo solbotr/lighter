@@ -861,6 +861,9 @@ class MaxSizeExecutionEngine:
         for pos in self.active_positions.values():
             if not pos.is_active:
                 continue
+            # Ignore sub-dollar residual dust
+            if abs(getattr(pos, "notional_usd", 0.0)) < 1.0 and abs(getattr(pos, "size_eth", 0.0)) * getattr(pos, "entry_price", 0.0) < 1.0:
+                continue
             if pos.asset.upper() == want:
                 return pos
             # Market 0 is ETH's default; only treat a real catalog id as a duplicate slot.
@@ -2465,6 +2468,10 @@ class LighterNewsSniperBot:
             symbol = item["symbol"] or "UNK"
             snap = self.tickers.get(symbol)
             price = item["entry_price"] or (snap.price if snap else 0.0)
+            notional = float(item["size"]) * float(price or item["entry_price"] or 1.0)
+            if notional < 1.0:
+                logger.info("Ignoring residual exchange dust for %s: size=%s ($%.4f USD)", symbol, item["size"], notional)
+                continue
             if flatten:
                 dummy = ActivePosition(
                     position_id=f"recon_{symbol}",
