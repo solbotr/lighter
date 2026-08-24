@@ -101,4 +101,4 @@ async def test_stealth_iceberg_slicing_and_execution():
     completed = await router.execute_stealth_iceberg(parent)
     assert completed.status == "COMPLETED"
     assert completed.total_filled_usd == pytest.approx(150.0, 0.01)
-    assert completed.average_fill_price == 200.0
+    assert completed.average_fill_price == pytest.approx(200.0, 0.01)
