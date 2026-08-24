@@ -72,7 +72,9 @@ except Exception:
 
 
 def send_telegram_alert(message: str) -> None:
-    """Dispatches emergency or status alert to Telegram."""
+    """Dispatches emergency alerts to Telegram (only on unrecoverable failures)."""
+    if os.getenv("MUTE_WATCHDOG_TELEGRAM", "true").lower() in ("true", "1", "yes"):
+        return
     try:
         from lighter_telegram import tg_send
         tg_send(message)
@@ -81,19 +83,9 @@ def send_telegram_alert(message: str) -> None:
 
 
 def run_supervisor_loop():
-    """Endless watchdog supervisor loop with auto-crash recovery."""
+    """Endless watchdog supervisor loop with auto-crash recovery (100% silent in background)."""
     logger.info("🛡️ [Watchdog Supervisor Started] Guaranteeing 100% 24/7 bot uptime and crash immunity.")
-    send_telegram_alert(
-        "🛡️ <b>INDESTRUCTIBLE 24/7 WATCHDOG ACTIVATED</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚡ <b>Status:</b> <code>100% Crash Immunity Active</code>\n"
-        "🔄 <b>Auto-Restart:</b> <code>Sub-2s Recovery Enabled</code>\n"
-        "📊 <b>Strategy:</b> <code>Live 24/7 Execution Active</code>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "<i>Vitality heartbeats scheduled every hour.</i>"
-    )
 
-    last_heartbeat = time.time()
     restart_count = 0
 
     sub_env = dict(os.environ)
@@ -116,22 +108,9 @@ def run_supervisor_loop():
                 )
                 active_child_process = process
 
-                # Monitor while running
+                # Monitor while running silently
                 while process.poll() is None:
                     time.sleep(5)
-
-                    # Check if hourly vitality heartbeat is due
-                    now = time.time()
-                    if now - last_heartbeat >= HEARTBEAT_INTERVAL_SEC:
-                        last_heartbeat = now
-                        send_telegram_alert(
-                            f"🟢 <b>24/7 BOT VITALITY HEARTBEAT</b>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"⚡ <b>State:</b> <code>ONLINE & TRADING (PID: {process.pid})</code>\n"
-                            f"🛡️ <b>Health:</b> <code>100% OK (Zero Stalls)</code>\n"
-                            f"🔄 <b>Uptime Watchdog:</b> <code>Auto-Healing Active</code>\n"
-                            f"━━━━━━━━━━━━━━━━━━━━━━━━━"
-                        )
 
             # If process terminated, log exit code and auto-recover
             exit_code = process.returncode
