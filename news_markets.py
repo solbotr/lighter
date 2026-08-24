@@ -94,9 +94,36 @@ class TickerCache:
 
 
 def default_markets() -> List[AssetMarket]:
-    return [
+    markets: List[AssetMarket] = [
         AssetMarket("ETH", int(os.getenv("LIGHTER_ETH_MARKET_INDEX", "0")), default_price=float(os.getenv("LIGHTER_ETH_PRICE", "2650"))),
         AssetMarket("BTC", int(os.getenv("LIGHTER_BTC_MARKET_INDEX", "1")), default_price=float(os.getenv("LIGHTER_BTC_PRICE", "68500"))),
         AssetMarket("HYPE", int(os.getenv("LIGHTER_HYPE_MARKET_INDEX", "24")), default_price=float(os.getenv("LIGHTER_HYPE_PRICE", "20"))),
         AssetMarket("SOL", int(os.getenv("LIGHTER_SOL_MARKET_INDEX", "2")), default_price=float(os.getenv("LIGHTER_SOL_PRICE", "150"))),
     ]
+    try:
+        from pathlib import Path
+        import json
+        p = Path(__file__).with_name("lighter_universe.json")
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            books = data.get("order_book_details") or data.get("order_books") or []
+            existing_syms = {m.symbol for m in markets}
+            for b in books:
+                sym = str(b.get("symbol") or "").upper()
+                if not sym or sym in existing_syms:
+                    continue
+                try:
+                    idx = int(b.get("market_id", b.get("market_index", -1)))
+                except (TypeError, ValueError):
+                    continue
+                if idx >= 0:
+                    markets.append(AssetMarket(
+                        symbol=sym,
+                        market_index=idx,
+                        decimals=int(b.get("size_decimals") or 4),
+                        default_price=float(b.get("last_trade_price") or b.get("mark_price") or 0.0),
+                    ))
+                    existing_syms.add(sym)
+    except Exception:
+        pass
+    return markets

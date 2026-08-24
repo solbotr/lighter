@@ -110,8 +110,9 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
 
 
 def require_two_sources(event: NormalizedNewsEvent, independent_source_count: int, min_sources: int) -> bool:
-    if event.source_score >= 0.75 or event.category in {"official", "regulator", "exchange"} or event.official_verified:
-        return independent_source_count >= min_sources
-    if event.event_type in {"listing", "approval", "exploit", "outage", "surge", "breakdown", "etf", "upgrade"}:
-        return independent_source_count >= min_sources
+    # Fast Single-Source Wire Execution: allow instant single-source confirmation for Tier-1 news
+    if event.source_score >= 0.70 or event.category in {"official", "regulator", "exchange", "wire", "tier1"} or event.official_verified:
+        return independent_source_count >= 1
+    if event.confidence >= 0.75 and event.event_type in {"listing", "delisting", "approval", "rejection", "exploit", "outage", "surge", "breakdown", "etf", "upgrade", "mainnet", "whale"}:
+        return independent_source_count >= 1
     return independent_source_count >= min_sources

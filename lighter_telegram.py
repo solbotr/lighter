@@ -279,16 +279,23 @@ def tg_send_photo(
     chat_id: Optional[str] = None,
     reply_markup: Optional[dict] = None,
 ) -> bool:
-    """Dispatches photo directly to Telegram chat."""
+    """Dispatches photo directly to Telegram chat in non-blocking thread."""
     if _cg_tg_send_photo:
         token, default_chat = get_telegram_config()
-        return _cg_tg_send_photo(
-            photo,
-            caption=caption,
-            chat_id=chat_id or default_chat,
-            token=token,
-            reply_markup=reply_markup,
+        import threading
+        t = threading.Thread(
+            target=_cg_tg_send_photo,
+            args=(photo,),
+            kwargs={
+                "caption": caption,
+                "chat_id": chat_id or default_chat,
+                "token": token,
+                "reply_markup": reply_markup,
+            },
+            daemon=True,
         )
+        t.start()
+        return True
     return False
 
 
@@ -2361,25 +2368,40 @@ class LighterTelegramBot:
 
             asyncio.create_task(self._daily_ai_briefing_loop())
 
+            backoff_sec = 1.0
+            consecutive_errs = 0
             while self.is_running:
                 try:
                     url = f"https://api.telegram.org/bot{self.token}/getUpdates?offset={offset}&timeout=10"
-                    async with session.get(url, ssl=unverified_ssl, timeout=aiohttp.ClientTimeout(total=15.0)) as resp:
+                    async with session.get(url, ssl=unverified_ssl, timeout=aiohttp.ClientTimeout(total=30.0, connect=5.0, sock_read=25.0)) as resp:
                         if resp.status == 200:
+                            backoff_sec = 1.0
+                            consecutive_errs = 0
                             data = await resp.json()
                             updates = data.get("result", [])
                             for u in updates:
                                 offset = u["update_id"] + 1
                                 asyncio.create_task(self._handle_update(u, session))
+                        elif resp.status == 409:
+                            logger.warning("⚠️ Telegram getUpdates HTTP 409 Conflict (another instance running). Backing off 5.0s...")
+                            await asyncio.sleep(5.0)
                         else:
                             text = await resp.text()
-                            logger.error("❌ Telegram getUpdates returned HTTP %s: %s", resp.status, text)
+                            logger.debug("Telegram getUpdates returned HTTP %s: %s", resp.status, text[:120])
                             await asyncio.sleep(2.0)
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
-                    logger.error(f"[Poll Exception]: {e}")
-                    await asyncio.sleep(0.5)
+                    consecutive_errs += 1
+                    err_msg = str(e) or type(e).__name__
+                    if consecutive_errs <= 3:
+                        logger.debug("Transient Telegram polling timeout/reset (retry in %.1fs): %s", backoff_sec, err_msg)
+                    else:
+                        logger.warning("Telegram polling connection issue (attempt %d, retry in %.1fs): %s", consecutive_errs, backoff_sec, err_msg)
+                    import random
+                    jitter = random.uniform(0.1, 0.4)
+                    await asyncio.sleep(backoff_sec + jitter)
+                    backoff_sec = min(30.0, backoff_sec * 1.5)
 
     async def _daily_ai_briefing_loop(self):
         """Dispatches automated 24h Executive AI Morning Briefings to Telegram and Poke AI."""

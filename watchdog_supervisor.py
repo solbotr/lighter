@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -24,7 +25,8 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-LOG_DIR = "C:/LighterBot" if os.path.exists("C:/LighterBot") else "."
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = CURRENT_DIR if os.path.exists(os.path.join(CURRENT_DIR, "lighter_news_sniper.py")) else ("C:/LighterBot" if os.path.exists("C:/LighterBot") else ".")
 LOG_FILE = os.path.join(LOG_DIR, "watchdog_supervisor.log")
 
 from logging.handlers import RotatingFileHandler
@@ -40,9 +42,33 @@ logging.basicConfig(
 logger = logging.getLogger("WatchdogSupervisor")
 
 PYTHON_EXE = sys.executable or "python"
-BOT_SCRIPT = "C:/LighterBot/lighter_news_sniper.py"
+BOT_SCRIPT = os.path.join(LOG_DIR, "lighter_news_sniper.py") if os.path.exists(os.path.join(LOG_DIR, "lighter_news_sniper.py")) else "C:/LighterBot/lighter_news_sniper.py"
 BOT_ARGS = ["--live", "--margin-pct", "85"]
 HEARTBEAT_INTERVAL_SEC = 3600.0  # Hourly Telegram status
+
+active_child_process: Optional[subprocess.Popen] = None
+
+
+def cleanup_child_process(signum=None, frame=None):
+    global active_child_process
+    if active_child_process and active_child_process.poll() is None:
+        logger.info("🛑 Terminating child bot process before exit...")
+        try:
+            active_child_process.terminate()
+            active_child_process.wait(timeout=3)
+        except Exception:
+            try:
+                active_child_process.kill()
+            except Exception:
+                pass
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGINT, cleanup_child_process)
+    signal.signal(signal.SIGTERM, cleanup_child_process)
+except Exception:
+    pass
 
 
 def send_telegram_alert(message: str) -> None:
@@ -74,18 +100,21 @@ def run_supervisor_loop():
     sub_env["PYTHONIOENCODING"] = "utf-8"
     sub_env["PYTHONUTF8"] = "1"
 
+    global active_child_process
     while True:
         try:
             logger.info("🚀 Launching bot process: %s %s", BOT_SCRIPT, " ".join(BOT_ARGS))
             sniper_log_path = os.path.join(LOG_DIR, "sniper_app.log")
+            spawn_time = time.time()
             with open(sniper_log_path, "a", encoding="utf-8", errors="replace") as log_f:
                 process = subprocess.Popen(
                     [PYTHON_EXE, BOT_SCRIPT] + BOT_ARGS,
-                    cwd="C:/LighterBot" if os.path.exists("C:/LighterBot") else ".",
+                    cwd=LOG_DIR,
                     stdout=log_f,
                     stderr=subprocess.STDOUT,
                     env=sub_env,
                 )
+                active_child_process = process
 
                 # Monitor while running
                 while process.poll() is None:
@@ -106,14 +135,17 @@ def run_supervisor_loop():
 
             # If process terminated, log exit code and auto-recover
             exit_code = process.returncode
+            run_duration = time.time() - spawn_time
             restart_count += 1
-            logger.warning("⚠️ Bot process exited with code %d! Auto-restarting in 2s (Restart #%d)...", exit_code, restart_count)
-            send_telegram_alert(
-                f"⚠️ <b>AUTO-HEALING ACTIVATED</b>\n"
-                f"Process exited with code <code>{exit_code}</code>.\n"
-                f"🔄 <b>Auto-restarting in 2 seconds...</b>"
-            )
-            time.sleep(2)
+            delay_sec = 2.0 if run_duration > 15.0 else min(30.0, 5.0 * restart_count)
+            logger.warning("⚠️ Bot process exited with code %d after %.1fs! Auto-restarting in %.1fs (Restart #%d)...", exit_code, run_duration, delay_sec, restart_count)
+            if restart_count <= 3 or restart_count % 10 == 0:
+                send_telegram_alert(
+                    f"⚠️ <b>AUTO-HEALING ACTIVATED</b>\n"
+                    f"Process exited with code <code>{exit_code}</code>.\n"
+                    f"🔄 <b>Auto-restarting in {int(delay_sec)} seconds...</b>"
+                )
+            time.sleep(delay_sec)
 
         except Exception as e:
             logger.critical("Fatal supervisor error: %s. Auto-recovering in 5s...", e)

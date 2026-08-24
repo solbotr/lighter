@@ -252,10 +252,10 @@ class LighterExecutionEngine:
         is_paper_mode: bool = True,
         on_fill_callback: Optional[Callable] = None,
     ):
-        self.base_url = base_url.rstrip("/")
-        self.account_index = account_index
-        self.api_key_index = api_key_index
-        self.api_private_key = api_private_key
+        self.base_url = (os.getenv("LIGHTER_BASE_URL") or base_url).rstrip("/")
+        self.account_index = int(account_index if account_index > 0 else os.getenv("LIGHTER_ACCOUNT_INDEX", "737649"))
+        self.api_key_index = int(api_key_index if api_key_index != 2 else os.getenv("LIGHTER_API_KEY_INDEX", "5"))
+        self.api_private_key = api_private_key or os.getenv("LIGHTER_API_PRIVATE_KEY", "")
         self.market_index = market_index
         self.price_decimals = price_decimals
         self.size_decimals = size_decimals

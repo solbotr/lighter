@@ -306,6 +306,10 @@ class MaxSizeExecutionEngine:
         self._http: Optional[aiohttp.ClientSession] = None
         self._order_lock = asyncio.Lock()
         self._last_care_ts: float = 0.0
+        self._cached_catalog: List[Dict[str, Any]] = []
+        self._cached_positions: List[Dict[str, Any]] = []
+        self._last_catalog_fetch_ts: float = 0.0
+        self._last_positions_fetch_ts: float = 0.0
         self.clock = PositionClock(os.getenv("NEWS_DB_PATH", str(Path(__file__).with_name("lighter_news.db"))))
 
     async def _ensure_signer(self):
@@ -323,7 +327,17 @@ class MaxSizeExecutionEngine:
 
     async def _http_session(self) -> aiohttp.ClientSession:
         if self._http is None or self._http.closed:
-            self._http = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8.0))
+            connector = aiohttp.TCPConnector(
+                limit=100,
+                limit_per_host=30,
+                enable_cleanup_closed=True,
+                keepalive_timeout=75.0,
+                ttl_dns_cache=300,
+            )
+            self._http = aiohttp.ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=6.0, connect=2.0, sock_read=4.0),
+            )
         return self._http
 
     def _select_subaccount(self, sub_accs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -426,25 +440,49 @@ class MaxSizeExecutionEngine:
         )
 
     async def fetch_order_catalog(self) -> List[Dict[str, Any]]:
+        now = time.time()
+        # Tier-1 Memory Cache: Serve fast sub-millisecond cached catalog if fresh (<2s)
+        if self._cached_catalog and (now - self._last_catalog_fetch_ts) < 2.0:
+            return self._cached_catalog
+
         try:
             session = await self._http_session()
             async with session.get(f"{self.base_url}/api/v1/orderBooks") as resp:
-                if resp.status != 200:
-                    logger.warning("orderBooks HTTP %s", resp.status)
-                    return []
-                data = await resp.json(content_type=None)
-            books = data.get("order_book_details") or data.get("order_books") or data.get("data") or []
-            if isinstance(books, dict):
-                books = books.get("order_book_details") or [books]
-            books = list(books)
-            for book in books:
-                symbol = str(book.get("symbol") or "").upper()
-                if symbol:
-                    self._book_to_snapshot(symbol, book)
-            return books
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    books = data.get("order_book_details") or data.get("order_books") or data.get("data") or []
+                    if isinstance(books, dict):
+                        books = books.get("order_book_details") or [books]
+                    books = list(books)
+                    if books:
+                        for book in books:
+                            symbol = str(book.get("symbol") or "").upper()
+                            if symbol:
+                                self._book_to_snapshot(symbol, book)
+                        self._cached_catalog = books
+                        self._last_catalog_fetch_ts = now
+                        return books
         except Exception as e:
-            logger.warning("Market catalog fetch failed: %s: %s", type(e).__name__, e or "no message")
-            return []
+            logger.debug("Market catalog live fetch transient drop: %s", e)
+
+        # Tier-2 Fallback: Return in-memory cache if available
+        if self._cached_catalog:
+            return self._cached_catalog
+
+        # Tier-3 Fallback: Load from lighter_universe.json disk cache
+        try:
+            p = Path(__file__).with_name("lighter_universe.json")
+            if p.exists():
+                import json
+                disk_data = json.loads(p.read_text(encoding="utf-8"))
+                books = disk_data.get("order_book_details") or disk_data.get("order_books") or []
+                if books:
+                    self._cached_catalog = list(books)
+                    return self._cached_catalog
+        except Exception:
+            pass
+
+        return []
 
     async def fetch_market_snapshot(self, asset: str, market_index: int) -> Optional[MarketSnapshot]:
         books = await self.fetch_order_catalog()
@@ -677,29 +715,35 @@ class MaxSizeExecutionEngine:
         }
 
     async def fetch_account_positions(self) -> List[Dict[str, Any]]:
+        now = time.time()
+        if self._cached_positions and (now - self._last_positions_fetch_ts) < 1.0:
+            return self._cached_positions
+
         try:
             session = await self._http_session()
             url = f"{self.base_url}/api/v1/account?by=index&value={self.account_index}&active_only=true"
             async with session.get(url) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json(content_type=None)
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    accounts = data.get("accounts") or data.get("data") or ([data] if isinstance(data, dict) else [])
+                    positions: List[Dict[str, Any]] = []
+                    for acc in accounts if isinstance(accounts, list) else [accounts]:
+                        if not isinstance(acc, dict):
+                            continue
+                        raw = acc.get("positions") or acc.get("position") or []
+                        if isinstance(raw, dict):
+                            raw = list(raw.values())
+                        for item in raw:
+                            parsed = self.parse_account_position(item)
+                            if parsed:
+                                positions.append(parsed)
+                    self._cached_positions = positions
+                    self._last_positions_fetch_ts = now
+                    return positions
         except Exception as e:
-            logger.warning("Account position fetch failed: %s", e)
-            return []
-        accounts = data.get("accounts") or data.get("data") or ([data] if isinstance(data, dict) else [])
-        positions: List[Dict[str, Any]] = []
-        for acc in accounts if isinstance(accounts, list) else [accounts]:
-            if not isinstance(acc, dict):
-                continue
-            raw = acc.get("positions") or acc.get("position") or []
-            if isinstance(raw, dict):
-                raw = list(raw.values())
-            for item in raw:
-                parsed = self.parse_account_position(item)
-                if parsed:
-                    positions.append(parsed)
-        return positions
+            logger.debug("Account position fetch transient drop: %s", e)
+
+        return self._cached_positions
 
     async def sync_and_adopt_all_live_positions(self) -> Dict[str, float]:
         """Automatically adopts all open on-chain positions from zkLighter into the TP/SL watchdog."""
