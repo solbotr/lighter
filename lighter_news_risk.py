@@ -189,7 +189,7 @@ class LighterNewsRiskGate:
                 or bool(active_positions and any(
                     (getattr(p, "asset", p.get("symbol", "") if isinstance(p, dict) else str(p)).upper() == symbol)
                     and getattr(p, "is_active", True)
-                    and (abs(getattr(p, "notional_usd", 0.0)) >= 1.0 or abs(getattr(p, "size_eth", 0.0)) * getattr(p, "entry_price", 0.0) >= 1.0)
+                    and (abs(getattr(p, "notional_usd", 0.0)) >= 10.0 or abs(getattr(p, "size_eth", 0.0)) * getattr(p, "entry_price", 0.0) >= 10.0)
                     for p in (active_positions.values() if isinstance(active_positions, dict) else active_positions)
                 ))
             )

@@ -908,8 +908,8 @@ class MaxSizeExecutionEngine:
         for pos in self.active_positions.values():
             if not pos.is_active:
                 continue
-            # Ignore sub-dollar residual dust
-            if abs(getattr(pos, "notional_usd", 0.0)) < 1.0 and abs(getattr(pos, "size_eth", 0.0)) * getattr(pos, "entry_price", 0.0) < 1.0:
+            # Ignore sub-minimum residual dust (< $10.00)
+            if abs(getattr(pos, "notional_usd", 0.0)) < 10.0 and abs(getattr(pos, "size_eth", 0.0)) * getattr(pos, "entry_price", 0.0) < 10.0:
                 continue
             if pos.asset.upper() == want:
                 return pos
