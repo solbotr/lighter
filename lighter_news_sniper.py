@@ -2194,25 +2194,37 @@ class LighterNewsSniperBot:
             return
 
         snapshot = self.tickers.get(market.symbol)
-        if snapshot is None or not snapshot.fresh:
+        if snapshot is None or not snapshot.fresh or snapshot.price <= 0:
             fetched = await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
-            if fetched:
+            if fetched and fetched.price > 0:
                 snapshot = fetched
                 self.tickers.update(fetched)
-        if snapshot is None or (self.is_live and not snapshot.fresh):
+        if snapshot is None or snapshot.price <= 0:
             fallback_snapshot = self.tickers.snapshot_or_env(market)
             if fallback_snapshot and fallback_snapshot.price > 0:
                 fallback_snapshot.timestamp = time.time()
                 snapshot = fallback_snapshot
                 self.tickers.update(snapshot)
-            elif self.is_live:
-                self.metrics.inc("stale_price_veto")
-                logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
-                return
             else:
-                snapshot = fallback_snapshot
+                # Direct depth book mid-price fallback
+                depth_book = await self.executor.fetch_orderbook_depth(market.market_index)
+                if depth_book and depth_book.mid_price > 0:
+                    snapshot = MarketSnapshot(
+                        symbol=market.symbol,
+                        market_index=market.market_index,
+                        price=depth_book.mid_price,
+                        spread_bps=depth_book.spread_bps,
+                        timestamp=time.time(),
+                    )
+                    self.tickers.update(snapshot)
+                elif self.is_live:
+                    self.metrics.inc("stale_price_veto")
+                    logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
+                    return
+                else:
+                    snapshot = fallback_snapshot
         spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market.market_index))
-        if spread > 0:
+        if spread > 0 and snapshot:
             snapshot.spread_bps = spread
 
         if side not in market.enabled_sides:

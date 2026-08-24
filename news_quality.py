@@ -17,6 +17,7 @@ TRADEABLE_TYPES = frozenset({
     "earnings", "macro", "regulatory", "opec", "sanction", "distress",
     "partnership", "breakout", "surge", "breakdown", "tariff",
     "upgrade", "mainnet", "etf", "whale", "arbitrage", "momentum", "general_crypto", "defi", "layer1",
+    "liquidation", "sec", "tokenomics", "volume_surge", "whale_movement", "ecosystem", "protocol", "crypto",
 })
 REGULATOR_SOLO = frozenset({"regulator"})
 HARD_VETO = re.compile(
@@ -85,11 +86,13 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
         return False, "news event is missing"
     if HARD_VETO.search(f"{event.headline} {event.body}"):
         return False, "headline matched hard veto (unrelated sector/noise)"
-    if PROCESS_NOISE.search(event.headline or "") and event.event_type in {"regulatory", "macro"}:
-        return False, "regulator calendar/process, not an asset catalyst"
-    if event.event_type not in TRADEABLE_TYPES:
-        return False, f"event type {event.event_type} is not auto-tradeable"
-    if event.event_type in {"macro", "opec"} and PRICE_ACTION.search(event.headline or "") and not FRESH_CATALYST.search(f"{event.headline} {(event.body or '')[:240]}"):
+    event_type = event.event_type
+    if event_type not in TRADEABLE_TYPES:
+        if event_type == "unknown" and event.direction in {"BULLISH", "BEARISH"} and event.confidence >= 0.75 and FRESH_CATALYST.search(event.headline or ""):
+            event_type = "momentum"
+        else:
+            return False, f"event type {event.event_type} is not auto-tradeable"
+    if event_type in {"macro", "opec"} and PRICE_ACTION.search(event.headline or "") and not FRESH_CATALYST.search(f"{event.headline} {(event.body or '')[:240]}"):
         return False, "lagging price-action, not a fresh catalyst"
     if event.direction not in {"BULLISH", "BEARISH"}:
         return False, "no tradeable direction"
