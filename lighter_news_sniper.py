@@ -723,6 +723,9 @@ class MaxSizeExecutionEngine:
                 entry = float(item.get("entry_price") or 0)
                 mkt_idx = int(item.get("market_index") or 0)
                 mark = catalog_prices.get(sym, entry)
+                notional = size * (entry if entry > 0 else mark)
+                if notional < 1.0:
+                    continue
                 if mark > 0:
                     prices[sym] = mark
                 open_n = int(item.get("open_order_count") or item.get("position_tied_order_count") or 0)
