@@ -415,8 +415,8 @@ class MaxSizeExecutionEngine:
         last = float(book.get("last_trade_price") or book.get("mark_price") or book.get("index_price") or 0)
         mark = float(book.get("mark_price") or last)
         spread_bps = abs(mark - last) / last * 10_000.0 if last else 0.0
-        size_decimals = self._int_or(book.get("size_decimals"), 4)
-        price_decimals = self._int_or(book.get("price_decimals"), 2)
+        size_decimals = self._int_or(book.get("supported_size_decimals", book.get("size_decimals")), 4)
+        price_decimals = self._int_or(book.get("supported_price_decimals", book.get("price_decimals")), 2)
         min_base = float(book.get("min_base_amount") or 0.0)
         min_quote = float(book.get("min_quote_amount") or 0.0)
         self.market_meta[asset.upper()] = {
@@ -438,6 +438,34 @@ class MaxSizeExecutionEngine:
             min_base_amount=min_base,
             market_index=idx,
         )
+
+    def _meta(self, asset: str) -> Dict[str, Any]:
+        if asset.upper() not in self.market_meta:
+            try:
+                p = Path(__file__).with_name("lighter_universe.json")
+                if p.exists():
+                    import json
+                    disk_data = json.loads(p.read_text(encoding="utf-8"))
+                    books = disk_data.get("order_books") or disk_data.get("order_book_details") or []
+                    for b in books:
+                        sym = str(b.get("symbol") or "").upper()
+                        if sym:
+                            idx = int(b.get("market_id", b.get("market_index", -1)))
+                            s_dec = self._int_or(b.get("supported_size_decimals", b.get("size_decimals")), 4)
+                            p_dec = self._int_or(b.get("supported_price_decimals", b.get("price_decimals")), 2)
+                            self.market_meta[sym] = {
+                                "market_index": idx,
+                                "size_decimals": s_dec,
+                                "price_decimals": p_dec,
+                                "min_base_amount": float(b.get("min_base_amount") or 0.0),
+                                "min_quote_amount": float(b.get("min_quote_amount") or 0.0),
+                            }
+            except Exception:
+                pass
+        defaults = {"size_decimals": 4, "price_decimals": 2, "min_base_amount": 0.0, "market_index": 0}
+        merged = dict(defaults)
+        merged.update(self.market_meta.get(asset.upper(), {}))
+        return merged
 
     async def fetch_order_catalog(self) -> List[Dict[str, Any]]:
         now = time.time()
@@ -598,11 +626,6 @@ class MaxSizeExecutionEngine:
         except (TypeError, ValueError):
             return default
 
-    def _meta(self, asset: str) -> Dict[str, Any]:
-        defaults = {"size_decimals": 4, "price_decimals": 2, "min_base_amount": 0.0, "market_index": 0}
-        merged = dict(defaults)
-        merged.update(self.market_meta.get(asset.upper(), {}))
-        return merged
 
     def ensure_exit_prices(self, pos: ActivePosition) -> None:
         """Every position always has local TP and SL prices for the watchdog with volatility adaptation."""
