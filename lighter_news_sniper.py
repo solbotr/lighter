@@ -575,6 +575,7 @@ class MaxSizeExecutionEngine:
         current_price_usd: float,
         conviction: Optional[float] = None,
         margin_utilization_pct: Optional[float] = None,
+        max_trade_usd: Optional[float] = None,
     ) -> float:
         if margin_utilization_pct is not None:
             utilization = margin_utilization_pct
@@ -584,6 +585,8 @@ class MaxSizeExecutionEngine:
         else:
             utilization = self.max_margin_utilization_pct
         usable_usd = collateral_usd * (utilization / 100.0)
+        if max_trade_usd is not None:
+            usable_usd = min(usable_usd, max_trade_usd)
         size_eth = usable_usd / max(1.0, current_price_usd)
         return round(size_eth, 8)
 
@@ -1662,6 +1665,7 @@ class MaxSizeExecutionEngine:
     async def execute_catalyst_snipe(self, signal: CatalystSignal, current_market_price: float) -> Dict[str, Any]:
         """Wrapper for news catalysts with Dynamic Kelly Sizing."""
         is_ask = (signal.sentiment == "BEARISH")
+        budget = min(float(os.getenv("NEWS_MAX_TRADE_USD", "100.0")), float(os.getenv("NEWS_REQUESTED_USD", "50.0")))
         return await self.execute_trade(
             asset=signal.target_asset,
             market_index=signal.market_index,
@@ -1669,6 +1673,7 @@ class MaxSizeExecutionEngine:
             current_market_price=current_market_price,
             reason=f"NEWS: {signal.headline[:40]}",
             conviction=signal.conviction_score,
+            notional_usd=budget,
         )
 
     async def close_all_positions(self, current_market_price: Any = 2650.0) -> int:
