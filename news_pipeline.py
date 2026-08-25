@@ -220,7 +220,7 @@ class NewsConfirmationEngine:
         independent_sources = {member.source_id for member in members}
         if not require_two_sources(event, len(independent_sources), self.min_sources):
             return False
-        return event.confidence >= 0.68 and event.materiality >= 0.45
+        return event.confidence >= 0.65 and event.materiality >= 0.40
 
     def invalidate_cluster(self, cluster_id: str) -> List[NormalizedNewsEvent]:
         members = self._clusters.get(cluster_id, [])
@@ -444,6 +444,8 @@ RULE_REGISTRY: Tuple[Tuple[str, str, str, float], ...] = (
     (r"\b(delist(ed|ing)?)\b", "delisting", "BEARISH", 0.80),
     (r"\b(reject(ed|ion)|denied)\b", "rejection", "BEARISH", 0.70),
     (r"\b(unlock|token unlock|cliff)\b", "unlock", "BEARISH", 0.60),
+    (r"\b(burn(s|ed|ing)?|supply burn|token burn|fee burn)\b", "burn", "BULLISH", 0.78),
+    (r"\b(loads? up|accumulat(es|ed|ing)|buys?|bought|purchas(ed|ing|es)|inflows?|institutional inflow)\b", "whale", "BULLISH", 0.78),
     (r"\b(liquidation|liquidated|long liquidation)\b", "liquidation", "BEARISH", 0.70),
     (r"\b(short squeeze|short liquidation)\b", "surge", "BULLISH", 0.80),
     (r"\b(opec|production cut|supply cut)\b", "opec", "BULLISH", 0.75),
@@ -454,14 +456,14 @@ RULE_REGISTRY: Tuple[Tuple[str, str, str, float], ...] = (
     (r"\b(copper).{0,40}(collapse|slump|plunge)\b", "macro", "BEARISH", 0.68),
     (r"\b(yen|euro|sterling|pound).{0,32}(plunge|slump|tumble)\b", "macro", "BEARISH", 0.65),
     (r"\b(yen|euro|sterling|pound).{0,32}(surge|jump|rally|soar)\b", "macro", "BULLISH", 0.65),
-    (r"\b(will list|lists|listed|listing|added to robinhood|added to binance|added to coinbase)\b", "listing", "BULLISH", 0.75),
-    (r"\b(approv(ed|es|al)|etf approved|wins lawsuit|lawsuit dismissed|sec drops)\b", "approval", "BULLISH", 0.80),
-    (r"\b(spot etf|etf filing|etf inflows?|etf launch)\b", "etf", "BULLISH", 0.80),
-    (r"\b(partnership|integrat(es|ion)|mainnet launch|mainnet|upgrade|hard fork|v2|v3)\b", "upgrade", "BULLISH", 0.70),
-    (r"\b(token burn|burned tokens?|buyback|accumulat(es|ing)|acquires?)\b", "partnership", "BULLISH", 0.70),
-    (r"\b(surges?|soars?|rall(y|ies|ied)|jumps?|breaks? out|breakout|record high|all-time high|ath|pumps?)\b", "surge", "BULLISH", 0.75),
-    (r"\b(plunges?|crashes?|collapses?|tumbles?|slumps?|dumps?|dives?|selloff)\b", "breakdown", "BEARISH", 0.75),
-    (r"\b(governance|proposal passed|vote passed)\b", "governance", "BULLISH", 0.45),
+    (r"\b(will list|lists|listed|listing|added to robinhood|added to binance|added to coinbase|opens trading|trading live)\b", "listing", "BULLISH", 0.78),
+    (r"\b(approv(ed|es|al)|etf approved|wins lawsuit|lawsuit dismissed|sec drops|sec clearance|wins fda|fda clearance|granted license|sec settlement)\b", "approval", "BULLISH", 0.82),
+    (r"\b(spot etf|etf filing|etf inflows?|etf launch|etf approval)\b", "etf", "BULLISH", 0.80),
+    (r"\b(partnership|partners? with|collaborat(es|ion)|integrat(es|ion)|mainnet launch|mainnet|upgrade|hard fork|v2|v3|launch(es|ed|ing)|unveils?|deploys?)\b", "upgrade", "BULLISH", 0.74),
+    (r"\b(buyback|treasury buyback|share buyback|token buyback)\b", "buyback", "BULLISH", 0.76),
+    (r"\b(surges?|soars?|rall(y|ies|ied)|jumps?|breaks? out|breakout|record high|all-time high|ath|pumps?|boosts?|gains?|rises?|climbs?|explod(es|ing)|bullish)\b", "surge", "BULLISH", 0.75),
+    (r"\b(plunges?|crashes?|collapses?|tumbles?|slumps?|dumps?|dives?|selloff|retreats?|pullback|drops?|falls?|bearish)\b", "breakdown", "BEARISH", 0.75),
+    (r"\b(governance|proposal passed|vote passed)\b", "governance", "BULLISH", 0.50),
     (r"\b(funding|raises|series [abc]|treasury)\b", "funding", "BULLISH", 0.50),
     (r"\b(beats|beat estimates|earnings beat|record (revenue|profit))\b", "earnings", "BULLISH", 0.75),
     (r"\b(misses|earnings miss|cuts guidance|profit warning)\b", "earnings", "BEARISH", 0.80),
@@ -479,7 +481,7 @@ def classify_event(headline: str, body: str) -> Tuple[str, str, float]:
     text = f"{headline} {body}".lower()
     for pattern, event_type, direction, materiality in RULE_REGISTRY:
         if re.search(pattern, text):
-            if event_type == "regulatory" and re.search(r"\b(approv(ed|es|al)|settlement)\b", text):
+            if event_type == "regulatory" and re.search(r"\b(approv(ed|es|al)|settlement|clearance|cleared)\b", text):
                 return "approval", "BULLISH", 0.80
             return event_type, direction, materiality
     return "unknown", "NEUTRAL", 0.10
