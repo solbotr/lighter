@@ -485,6 +485,50 @@ class MaxSizeExecutionEngine:
         return []
 
     async def fetch_market_snapshot(self, asset: str, market_index: int) -> Optional[MarketSnapshot]:
+        # Tier-1: Live L2 Depth Book mid-price
+        try:
+            depth_book = await self.fetch_orderbook_depth(market_index)
+            if depth_book and depth_book.mid_price > 0:
+                snap = MarketSnapshot(
+                    asset=asset.upper(),
+                    price=depth_book.mid_price,
+                    spread_bps=depth_book.spread_bps,
+                    timestamp=time.time(),
+                    market_index=market_index,
+                )
+                self.market_meta[asset.upper()] = {
+                    "market_index": market_index,
+                    "size_decimals": 4,
+                    "price_decimals": 2,
+                    "min_base_amount": 0.0,
+                    "min_quote_amount": 0.0,
+                }
+                return snap
+        except Exception:
+            pass
+
+        # Tier-2: Recent Trades price
+        try:
+            session = await self._http_session()
+            url = f"{self.base_url}/api/v1/recentTrades?market_id={market_index}&limit=5"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    trades = data.get("trades") or []
+                    if trades:
+                        price = float(trades[0].get("price") or 0.0)
+                        if price > 0:
+                            return MarketSnapshot(
+                                asset=asset.upper(),
+                                price=price,
+                                spread_bps=10.0,
+                                timestamp=time.time(),
+                                market_index=market_index,
+                            )
+        except Exception:
+            pass
+
+        # Tier-3: Order Catalog
         books = await self.fetch_order_catalog()
         snapshots = self.snapshots_from_catalog(books, [(asset, market_index)])
         return snapshots.get(asset.upper())

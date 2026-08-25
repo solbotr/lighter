@@ -256,7 +256,17 @@ class MicrostructureDepthBook:
         if isinstance(item, (tuple, list)) and len(item) >= 2:
             return float(item[0]), float(item[1])
         if isinstance(item, dict):
-            return float(item.get("price", 0.0)), float(item.get("size", item.get("amount", 0.0)))
+            p = float(item.get("price", 0.0))
+            s = float(
+                item.get("remaining_base_amount")
+                or item.get("base_amount")
+                or item.get("initial_base_amount")
+                or item.get("size")
+                or item.get("amount")
+                or item.get("qty")
+                or 0.0
+            )
+            return p, s
         if hasattr(item, "price") and hasattr(item, "size"):
             return float(item.price), float(item.size)
         return 0.0, 0.0
