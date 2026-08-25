@@ -70,7 +70,7 @@ class LighterNewsRiskGate:
         self.max_directional_usd = float(os.getenv("NEWS_MAX_DIRECTIONAL_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "50"))
         self.max_consecutive_losses = int(os.getenv("NEWS_MAX_CONSECUTIVE_LOSSES", "3"))
-        self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "20"))
+        self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
         self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
         self._reserved_usd = 0.0
