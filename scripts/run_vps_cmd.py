@@ -17,7 +17,7 @@ import sys
 import paramiko
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(interpolate=False)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -25,6 +25,19 @@ if hasattr(sys.stdout, "reconfigure"):
 VPS_HOST = os.getenv("VPS_HOST", "18.153.70.154")
 VPS_USER = os.getenv("VPS_USER", "administrator")
 VPS_PASS = os.getenv("VPS_PASS", "")
+
+if not VPS_PASS:
+    for p_path in [r"C:\Users\91907\Desktop\pass.txt", r"C:\Users\91907\Desktop\vps_pass.txt"]:
+        if os.path.exists(p_path):
+            try:
+                import re
+                txt = open(p_path, "r", encoding="utf-8").read()
+                m = re.search(r"password\s*:\s*(.*)", txt)
+                if m:
+                    VPS_PASS = m.group(1).strip()
+                    break
+            except Exception:
+                pass
 
 
 def execute_vps(cmd: str):
