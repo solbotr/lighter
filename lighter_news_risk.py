@@ -68,8 +68,8 @@ class LighterNewsRiskGate:
         self.confirmed_only = os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "true").lower() == "true"
         self.max_asset_usd = float(os.getenv("NEWS_MAX_ASSET_EXPOSURE_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_directional_usd = float(os.getenv("NEWS_MAX_DIRECTIONAL_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
-        self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "50"))
-        self.max_consecutive_losses = int(os.getenv("NEWS_MAX_CONSECUTIVE_LOSSES", "3"))
+        self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "200"))
+        self.max_consecutive_losses = int(os.getenv("NEWS_MAX_CONSECUTIVE_LOSSES", "50"))
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
         self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
@@ -81,6 +81,7 @@ class LighterNewsRiskGate:
         self._open_positions: set[str] = set()
         self._session_trades = 0
         self._consecutive_losses = 0
+        self._last_loss_time = 0.0
         self._daily_loss_usd = 0.0
         self._daily_date = ""
         self._pnl_db = os.getenv("NEWS_DB_PATH", "lighter_news.db")
@@ -233,11 +234,16 @@ class LighterNewsRiskGate:
 
     def record_pnl(self, pnl_usd: float) -> None:
         self._roll_day()
-        if pnl_usd < 0:
+        if pnl_usd < -2.0:
             self._consecutive_losses += 1
+            self._last_loss_time = time.time()
             self._daily_loss_usd += abs(pnl_usd)
-        else:
+        elif pnl_usd >= 0:
             self._consecutive_losses = 0
+        self._save_daily_pnl()
+
+    def reset_loss_breaker(self) -> None:
+        self._consecutive_losses = 0
         self._save_daily_pnl()
 
     def _utc_day(self) -> str:
@@ -250,6 +256,8 @@ class LighterNewsRiskGate:
             self._daily_loss_usd = 0.0
             self._consecutive_losses = 0
             self._session_trades = 0
+        elif self._consecutive_losses > 0 and time.time() - getattr(self, "_last_loss_time", 0.0) > 900:
+            self._consecutive_losses = 0
 
     def _load_daily_pnl(self) -> None:
         try:
