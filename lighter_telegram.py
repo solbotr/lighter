@@ -123,6 +123,12 @@ def is_duplicate_telegram_message(text: str, window_seconds: float = 3600.0) -> 
     if any(k in text for k in ["LIGHTER BOT:", "DAILY REPORT", "ACTIVE POSITIONS", "ORCHESTRATOR", "STATUS", "BALANCE"]):
         return False
 
+    # ALWAYS deliver trade execution cards — never suppress fills, TPs, or SLs
+    if any(k in text for k in ["NEW POSITION OPENED", "TAKE PROFIT HIT", "STOP LOSS EXECUTED",
+                                "TP SCALE-OUT", "TRAILING STOP HIT", "TIME-BASED EXIT",
+                                "WHALE RADAR", "BUY/LONG", "SELL/SHORT"]):
+        return False
+
     # Extract alphanumeric tokens and apply 5-char prefix stemming
     clean = re.sub(r"<[^>]+>", " ", text).lower()
     raw_tokens = re.findall(r"\b[a-z0-9]{3,}\b", clean)
