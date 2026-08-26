@@ -1688,7 +1688,7 @@ class MaxSizeExecutionEngine:
     async def execute_catalyst_snipe(self, signal: CatalystSignal, current_market_price: float) -> Dict[str, Any]:
         """Wrapper for news catalysts with Dynamic Kelly Sizing."""
         is_ask = (signal.sentiment == "BEARISH")
-        budget = min(float(os.getenv("NEWS_MAX_TRADE_USD", "100.0")), float(os.getenv("NEWS_REQUESTED_USD", "50.0")))
+        budget = min(float(os.getenv("NEWS_MAX_TRADE_USD", "100.0")), float(os.getenv("NEWS_REQUESTED_USD", "75.0")))
         return await self.execute_trade(
             asset=signal.target_asset,
             market_index=signal.market_index,
@@ -2302,7 +2302,7 @@ class LighterNewsSniperBot:
         if side not in market.enabled_sides:
             self.metrics.inc("side_disabled")
             return
-        requested_usd = min(self.news_risk_gate.max_trade_usd, float(os.getenv("NEWS_REQUESTED_USD", "50")))
+        requested_usd = min(self.news_risk_gate.max_trade_usd, float(os.getenv("NEWS_REQUESTED_USD", "75")))
         authorized = self._authorized()
         collateral = await self.executor.fetch_available_collateral_usd()
         momentum_confirmed = None
