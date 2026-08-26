@@ -21,12 +21,12 @@ from hyperliquid_execution import (
 
 def test_hyperliquid_client_initialization():
     client = HyperliquidExecutionClient(
-        master_wallet="0x5cE95F8F7594c082549B34A32c26f4bf2F1bcFe9",
-        agent_wallet="0xC0c5Ec3ba6d712F8202214161A3d4c575C5BBbdc",
-        agent_private_key="0x128cb2a3840eb110c665e693bff80a0f0ad593611dadbe75cc0f637ef5365a3c",
+        master_wallet="0x0000000000000000000000000000000000000001",
+        agent_wallet="0x0000000000000000000000000000000000000002",
+        agent_private_key="0x" + "1" * 64,
     )
-    assert client.master_wallet == "0x5cE95F8F7594c082549B34A32c26f4bf2F1bcFe9"
-    assert client.agent_wallet == "0xC0c5Ec3ba6d712F8202214161A3d4c575C5BBbdc"
+    assert client.master_wallet == "0x0000000000000000000000000000000000000001"
+    assert client.agent_wallet == "0x0000000000000000000000000000000000000002"
 
 
 def test_hyperliquid_format_status_report():

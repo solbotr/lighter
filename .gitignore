@@ -32,11 +32,18 @@ ENV/
 !.env.example
 *.pem
 *.key
+*.access
+*.private
 id_*
 secrets/
 .env.local
 .env.production
 .env.staging
+_vps_*.py
+_*.py
+*pass.txt
+*access.txt
+*key.txt
 
 # Logs
 *.log

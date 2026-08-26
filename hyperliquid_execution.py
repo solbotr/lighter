@@ -79,17 +79,17 @@ class HyperliquidExecutionClient:
         self.master_wallet = (
             master_wallet
             or os.getenv("HYPERLIQUID_MASTER_WALLET")
-            or "0x5cE95F8F7594c082549B34A32c26f4bf2F1bcFe9"
+            or ""
         )
         self.agent_wallet = (
             agent_wallet
             or os.getenv("HYPERLIQUID_AGENT_WALLET")
-            or "0xC0c5Ec3ba6d712F8202214161A3d4c575C5BBbdc"
+            or ""
         )
         self.agent_private_key = (
             agent_private_key
             or os.getenv("HYPERLIQUID_AGENT_PRIVATE_KEY")
-            or "0x128cb2a3840eb110c665e693bff80a0f0ad593611dadbe75cc0f637ef5365a3c"
+            or ""
         )
         self.base_url = base_url
         self._session: Optional[aiohttp.ClientSession] = None

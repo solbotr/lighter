@@ -12,15 +12,19 @@ Usage:
     python scripts/run_vps_cmd.py "tasklist /FI \"IMAGENAME eq python.exe\""
 """
 
+import os
 import sys
 import paramiko
+from dotenv import load_dotenv
+
+load_dotenv()
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-VPS_HOST = "18.153.70.154"
-VPS_USER = "administrator"
-VPS_PASS = "HjPGzX?4@%k8W&tRT!aZ9dDeq$?C(MpO"
+VPS_HOST = os.getenv("VPS_HOST", "18.153.70.154")
+VPS_USER = os.getenv("VPS_USER", "administrator")
+VPS_PASS = os.getenv("VPS_PASS", "")
 
 
 def execute_vps(cmd: str):

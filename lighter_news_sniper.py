@@ -362,12 +362,12 @@ class MaxSizeExecutionEngine:
 
     async def fetch_available_collateral_usd(self) -> Optional[float]:
         """Fetches the configured sub-account collateral with resilient caching."""
+        if not self.is_live:
+            return float(os.getenv("NEWS_PAPER_COLLATERAL_USD", "100"))
         wallet = os.getenv("WALLET_ADDRESS", "").strip()
         if not wallet:
-            if self.is_live:
-                logger.error("Live collateral query failed: WALLET_ADDRESS is not set")
-                return None
-            return float(os.getenv("NEWS_PAPER_COLLATERAL_USD", "100"))
+            logger.error("Live collateral query failed: WALLET_ADDRESS is not set")
+            return None
 
         if not hasattr(self, "_last_cached_collateral"):
             self._last_cached_collateral = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))

@@ -11,6 +11,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import math
+import os
 import struct
 import time
 from dataclasses import dataclass, field
@@ -42,14 +43,14 @@ class UltraFastSignerEngine:
 
     def __init__(
         self,
-        account_index: int = 737649,
-        api_key_index: int = 5,
-        private_key_hex: str = "d8f911f20a7a283983e7b2963eb5072a88d8df23e7b36b297da56c767d0c3f20a3c9849c9657ee6a",
+        account_index: Optional[int] = None,
+        api_key_index: Optional[int] = None,
+        private_key_hex: Optional[str] = None,
     ):
-        self.account_index = account_index
-        self.api_key_index = api_key_index
-        self.private_key_hex = private_key_hex
-        self.private_key_bytes = bytes.fromhex(private_key_hex) if private_key_hex else b""
+        self.account_index = account_index if account_index is not None else int(os.getenv("LIGHTER_ACCOUNT_INDEX", "737649"))
+        self.api_key_index = api_key_index if api_key_index is not None else int(os.getenv("LIGHTER_API_KEY_INDEX", "5"))
+        self.private_key_hex = private_key_hex or os.getenv("LIGHTER_API_PRIVATE_KEY") or os.getenv("LIGHTER_PRIVATE_KEY") or ""
+        self.private_key_bytes = bytes.fromhex(self.private_key_hex) if self.private_key_hex else b""
 
         # Pre-allocate order buffers for top markets
         self._buffers: Dict[int, PreAllocatedOrderBuffer] = {}
