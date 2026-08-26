@@ -342,6 +342,43 @@ def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
     )
 
 
+def format_exit_card(ev: Dict[str, Any], flat: bool = True) -> str:
+    """Formats position exit (TP/SL/Trailing/Timeout) card for Telegram."""
+    asset = ev.get("asset", "UNKNOWN")
+    exit_type = str(ev.get("type", "EXIT")).upper()
+    entry_p = float(ev.get("entry_price") or 0.0)
+    exit_p = float(ev.get("exit_price") or 0.0)
+    pnl_usd = float(ev.get("pnl_usd") or 0.0)
+    pnl_pct = float(ev.get("pnl_pct") or 0.0)
+    size = float(ev.get("size") or 0.0)
+    qty = float(ev.get("qty") or size)
+
+    pnl_emoji = "🟢" if pnl_usd >= 0 else "🔴"
+    pnl_sign = "+" if pnl_usd >= 0 else ""
+
+    header = "🎯 <b>TAKE PROFIT HIT</b>" if pnl_usd >= 0 else "🛑 <b>STOP LOSS EXECUTED</b>"
+    if "TRAILING" in exit_type:
+        header = "📈 <b>TRAILING STOP HIT</b>"
+    elif "TIMEOUT" in exit_type:
+        header = "⏱️ <b>TIME-BASED EXIT</b>"
+    elif "SCALE" in exit_type or not flat:
+        header = "⚡ <b>TP SCALE-OUT (50%)</b>"
+
+    status_str = "Position Closed Flat" if flat else "Partial Close (50% Runner Active)"
+
+    return (
+        f"{header}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 <b>Asset:</b> <code>{asset}</code>\n"
+        f"⚡ <b>Trigger:</b> <code>{exit_type}</code>\n"
+        f"💵 <b>Closed Size:</b> <code>{qty} {asset}</code>\n"
+        f"📍 <b>Entry:</b> <code>${entry_p:.4f}</code> → <b>Exit:</b> <code>${exit_p:.4f}</code>\n"
+        f"{pnl_emoji} <b>Realized PnL:</b> <code>{pnl_sign}${pnl_usd:.2f} USD ({pnl_sign}{pnl_pct:.2f}%)</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Status: {status_str}</i>"
+    )
+
+
 def format_daily_pnl_report(stats: Dict[str, Any], is_paper_mode: bool = False) -> str:
     """Formats institutional 24h Daily Performance & PnL Report."""
     daily_pnl = stats.get("daily_realized_pnl_usd", 0.0)
