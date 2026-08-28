@@ -49,10 +49,17 @@ class MarketRegistry:
                 continue
             if market_index < 0:
                 continue
+            s_dec = book.get("supported_size_decimals")
+            if s_dec is None or s_dec == "":
+                s_dec = book.get("size_decimals")
+            try:
+                decimals = int(s_dec) if s_dec is not None and s_dec != "" else 4
+            except (TypeError, ValueError):
+                decimals = 4
             self._markets[symbol] = AssetMarket(
                 symbol=symbol,
                 market_index=market_index,
-                decimals=int(book.get("size_decimals") or 4),
+                decimals=decimals,
                 default_price=float(book.get("last_trade_price") or book.get("mark_price") or 0),
             )
         register_listed(self._markets.keys())
