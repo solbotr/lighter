@@ -1241,7 +1241,7 @@ class MaxSizeExecutionEngine:
         if collateral_usd is None:
             return {"success": False, "error": "live collateral query failed"}
         if notional_usd is not None:
-            order_size = float(notional_usd) / max(1.0, current_market_price)
+            order_size = float(notional_usd) / max(1e-6, current_market_price)
         else:
             order_size = self.calculate_max_order_size(
                 collateral_usd,
@@ -1293,7 +1293,7 @@ class MaxSizeExecutionEngine:
                 fallback_price=current_market_price,
             )
             if adj_notional < requested_notional:
-                order_size = adj_notional / max(1.0, current_market_price)
+                order_size = adj_notional / max(1e-6, current_market_price)
                 order_size = round(order_size, size_decimals) if size_decimals > 0 else float(int(order_size))
                 logger.info(
                     f"⚠️ [VWAP SIZING] Adjusted size: ${requested_notional:.2f} -> ${adj_notional:.2f} "
@@ -2410,12 +2410,21 @@ class LighterNewsSniperBot:
             try:
                 books = await self.executor.fetch_order_catalog()
                 self.markets.ingest_catalog(books)
-                wanted = [(market.symbol, market.market_index) for market in self.markets.enabled()]
-                for asset, snapshot in self.executor.snapshots_from_catalog(books, wanted).items():
+                markets = list(self.markets.enabled())
+                semaphore = asyncio.Semaphore(20)
+
+                async def refresh(market):
+                    async with semaphore:
+                        return await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
+
+                snapshots = await asyncio.gather(*(refresh(market) for market in markets), return_exceptions=True)
+                for market, snapshot in zip(markets, snapshots):
+                    if isinstance(snapshot, Exception) or snapshot is None or snapshot.price <= 0:
+                        continue
                     self.tickers.update(snapshot)
                     if hasattr(self.executor, "volatility_engine") and self.executor.volatility_engine:
                         self.executor.volatility_engine.on_tick(snapshot.asset, snapshot.price, timestamp=snapshot.timestamp)
-                    if asset == "ETH":
+                    if snapshot.asset == "ETH":
                         self.current_market_price = snapshot.price
                         self.current_market_timestamp = snapshot.timestamp
             except Exception as e:
