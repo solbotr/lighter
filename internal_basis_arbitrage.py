@@ -191,7 +191,7 @@ class InternalBasisArbitrageEngine:
 
         pos_id = f"basis_{opp.symbol}_{int(time.time()*1000)}"
         mid_price = (opp.spot_price + opp.perp_price) / 2.0
-        size_base = opp.target_notional_usd / max(1.0, mid_price)
+        size_base = opp.target_notional_usd / max(1e-6, mid_price)
 
         pos = ActiveBasisPosition(
             position_id=pos_id,

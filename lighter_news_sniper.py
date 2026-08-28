@@ -615,7 +615,7 @@ class MaxSizeExecutionEngine:
         usable_usd = collateral_usd * (utilization / 100.0)
         if max_trade_usd is not None:
             usable_usd = min(usable_usd, max_trade_usd)
-        size_eth = usable_usd / max(1.0, current_price_usd)
+        size_eth = usable_usd / max(1e-6, current_price_usd)
         return round(size_eth, 8)
 
     def _int_or(self, value: Any, default: int) -> int:
