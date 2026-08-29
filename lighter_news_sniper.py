@@ -524,13 +524,9 @@ class MaxSizeExecutionEngine:
                     timestamp=time.time(),
                     market_index=market_index,
                 )
-                self.market_meta[asset.upper()] = {
-                    "market_index": market_index,
-                    "size_decimals": 4,
-                    "price_decimals": 2,
-                    "min_base_amount": 0.0,
-                    "min_quote_amount": 0.0,
-                }
+                meta = self._meta(asset)
+                snap.size_decimals = meta.get("size_decimals", 4)
+                snap.price_decimals = meta.get("price_decimals", 2)
                 return snap
         except Exception:
             pass
@@ -698,6 +694,22 @@ class MaxSizeExecutionEngine:
         meta = self._meta(asset)
         size_decimals = self._int_or(meta.get("size_decimals"), 4)
         price_decimals = self._int_or(meta.get("price_decimals"), 2)
+
+        # Hard safety clamp: Never allow a new entry to exceed NEWS_MAX_TRADE_USD ($75.00)
+        if not reduce_only and price > 0:
+            max_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "75.0"))
+            max_allowed_size = (max_usd * 1.05) / price
+            if size > max_allowed_size:
+                logger.critical(
+                    "🚨 [HARD SIZING CLAMP] Prevented oversized order on %s: requested size %s ($%.2f USD) clamped to %s ($%.2f USD)",
+                    asset, size, size * price, max_allowed_size, max_usd,
+                )
+                size = max_allowed_size
+                if size_decimals == 0:
+                    size = float(int(size))
+                else:
+                    size = round(size, size_decimals)
+
         size_int = int(round(size * (10 ** size_decimals)))
         price_int = int(round(price * (10 ** price_decimals)))
         if size_int <= 0:
