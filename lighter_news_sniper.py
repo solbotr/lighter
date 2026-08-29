@@ -1333,7 +1333,8 @@ class MaxSizeExecutionEngine:
             f"Margin: {effective_margin:.1f}% (${collateral_usd * (effective_margin / 100.0):.2f}) | Reason: {reason}"
         )
 
-        pos_id = f"pos_{int(time.time() * 1000)}"
+        import uuid
+        pos_id = f"pos_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
         position = ActivePosition(
             position_id=pos_id,
             asset=asset,

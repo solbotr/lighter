@@ -64,23 +64,37 @@ class PokeAINewsAgentCluster:
         self.is_running = False
         self._seen_guids: set = set()
         
-        # Define 8 specialized Poke AI Sub-Agent Tasks
+        # Define 14 specialized Poke AI Sub-Agent Tasks
         self.tasks: List[PokeAgentTask] = [
             PokeAgentTask(
                 task_id="poke_subagent_twitter_vip",
-                name="Twitter / X VIP Listing & Breaking Catalyst Firehose",
-                category="exchange",
+                name="Twitter / X VIP Top Breaking Accounts Firehose",
+                category="media",
                 target_urls=[
+                    "https://x.com/DeItaone",
+                    "https://x.com/LiveSquawk",
+                    "https://x.com/StockMKTNewz",
+                    "https://x.com/unusual_whales",
+                    "https://x.com/Benzinga",
+                    "https://x.com/wallstengine",
+                    "https://x.com/WatcherGuru",
+                    "https://x.com/WuBlockchain",
+                    "https://x.com/whale_alert",
+                    "https://x.com/lookonchain",
                     "https://x.com/binance",
                     "https://x.com/upbit_official",
                     "https://x.com/coinbase",
                     "https://x.com/tier10k",
-                    "https://x.com/WatcherGuru",
                     "https://x.com/Tree_of_Alpha",
                 ],
-                keywords=["list", "listing", "krw", "won", "trading open", "futures", "delist", "support"],
-                interval_seconds=5.0,
-                trust_score=0.96,
+                keywords=[
+                    "just in", "breaking", "list", "listing", "krw", "won", "trading open",
+                    "futures", "delist", "beat", "miss", "earnings", "guidance", "fda", "sec",
+                    "etf", "whale", "transferred", "inflow", "outflow", "surge", "plunge", "fed",
+                    "rate cut", "rate hike", "cpi", "tariffs", "opec"
+                ],
+                interval_seconds=3.0,
+                trust_score=0.97,
             ),
             PokeAgentTask(
                 task_id="poke_subagent_upbit_bithumb",
