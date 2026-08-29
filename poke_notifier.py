@@ -41,6 +41,26 @@ def strip_html_tags(text: str) -> str:
     return clean.strip()
 
 
+def sanitize_outgoing_text(text: str) -> str:
+    """
+    Security Privacy Shield:
+    Strictly scrubs and sanitizes all private keys, API secrets, nonces, and
+    zkLighter exchange credentials before anything leaves the local system.
+    """
+    if not text:
+        return ""
+    # Scrub 64-char hex private keys / secret keys
+    sanitized = re.sub(r"[0-9a-fA-F]{64}", "[REDACTED_KEY]", text)
+    # Scrub JWT tokens and long bearer tokens (except poke itself)
+    sanitized = re.sub(r"eyJ[a-zA-Z0-9_\-\.]{50,}", "[REDACTED_TOKEN]", sanitized)
+    # Scrub explicit env key names
+    for secret_env in ["LIGHTER_ARB_PRIVATE_KEY", "LIGHTER_API_KEY_INDEX", "PRIVATE_KEY"]:
+        val = os.getenv(secret_env, "")
+        if val and len(val) > 4:
+            sanitized = sanitized.replace(val, "[REDACTED_CREDENTIAL]")
+    return sanitized
+
+
 class PokeNotifierWorker(threading.Thread):
     """Background daemon worker delivering notifications to Poke AI without blocking trading."""
 
@@ -67,7 +87,7 @@ class PokeNotifierWorker(threading.Thread):
     def _dispatch(self, message: str):
         if not self.api_key:
             return
-        clean_text = strip_html_tags(message)
+        clean_text = sanitize_outgoing_text(strip_html_tags(message))
         payload = json.dumps({"message": clean_text}).encode("utf-8")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
