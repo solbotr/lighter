@@ -2845,7 +2845,14 @@ class LighterNewsSniperBot:
         asyncio.create_task(self._price_loop())
         asyncio.create_task(self._tp_watchdog_loop())
         asyncio.create_task(self._heartbeat_loop())
-        asyncio.create_task(self._universe_loop())
+        # 2. Launch Poke AI Autonomous News Sub-Agent Cluster
+        try:
+            from poke_news_agent import PokeAINewsAgentCluster
+            self.poke_cluster = PokeAINewsAgentCluster(on_records=self.on_incoming_news)
+            asyncio.create_task(self.poke_cluster.run_subagent_cycle())
+            logger.info("🤖 [Poke AI] Autonomous Sub-Agent News Cluster active (Twitter VIP, Upbit KRW, Binance Launchpool)")
+        except Exception as e:
+            logger.warning("Poke AI cluster startup fallback: %s", e)
 
         try:
             while True:
