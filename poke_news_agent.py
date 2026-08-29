@@ -161,6 +161,63 @@ class PokeAINewsAgentCluster:
                 interval_seconds=6.0,
                 trust_score=0.93,
             ),
+            PokeAgentTask(
+                task_id="poke_subagent_stock_benzinga",
+                name="Benzinga Real-Time US Equities & Tech Earnings Wire",
+                category="media",
+                target_urls=[
+                    "https://www.benzinga.com/feeds/rss/news",
+                ],
+                keywords=["beat", "earnings", "guidance", "fda", "merger", "acquisition", "nvda", "tsla", "aapl", "pltr"],
+                interval_seconds=5.0,
+                trust_score=0.94,
+            ),
+            PokeAgentTask(
+                task_id="poke_subagent_stock_pr_newswire",
+                name="PR Newswire & BusinessWire Official Press Releases",
+                category="official",
+                target_urls=[
+                    "https://www.prnewswire.com/rss/news-releases-list.rss",
+                    "https://feed.businesswire.com/rss/home/?rss=G1QFDERBXkJeGVtYXw==",
+                ],
+                keywords=["announced", "reports", "quarterly", "contract", "fda approval", "partnership", "buyback"],
+                interval_seconds=6.0,
+                trust_score=0.97,
+            ),
+            PokeAgentTask(
+                task_id="poke_subagent_stock_yahoo_tech",
+                name="Yahoo Finance Real-Time Tech & Semis Wire",
+                category="media",
+                target_urls=[
+                    "https://finance.yahoo.com/news/rssindex",
+                ],
+                keywords=["asml", "tsm", "nvda", "orcl", "pltr", "soars", "jumps", "record", "revenue"],
+                interval_seconds=5.0,
+                trust_score=0.92,
+            ),
+            PokeAgentTask(
+                task_id="poke_subagent_forex_central_banks",
+                name="Global Forex & Central Bank Breaking Wire (FOMC/ECB/BOJ)",
+                category="regulator",
+                target_urls=[
+                    "https://www.federalreserve.gov/feeds/press_all.xml",
+                    "https://www.ecb.europa.eu/rss/press.html",
+                ],
+                keywords=["interest rate", "rate cut", "rate hike", "cpi", "inflation", "dovish", "hawkish", "fomc"],
+                interval_seconds=8.0,
+                trust_score=0.99,
+            ),
+            PokeAgentTask(
+                task_id="poke_subagent_commodities_energy",
+                name="OPEC+, WTI Crude, Gold & Wheat Commodities Radar",
+                category="media",
+                target_urls=[
+                    "https://oilprice.com/rss/main",
+                ],
+                keywords=["opec", "crude", "oil", "wheat", "gold", "production cut", "supply", "inventory"],
+                interval_seconds=8.0,
+                trust_score=0.93,
+            ),
         ]
 
     def set_callback(self, on_records: Callable[[List[RawNewsRecord]], Any]) -> None:
@@ -171,11 +228,12 @@ class PokeAINewsAgentCluster:
         try:
             from poke_notifier import poke_send
             poke_send(
-                f"⚡ [Poke AI Sub-Agent Cluster Active]\n"
-                f"• Active Sub-Agents: {active_subagents_count}/8 Running\n"
-                f"• Mandates: Twitter VIP, Upbit KRW, Bithumb, Binance, Coinbase, OKX/Bybit, SEC Filings, Whales/Liquidity\n"
+                f"⚡ [Poke AI Institutional Sub-Agent Cluster Active]\n"
+                f"• Active Sub-Agents: {active_subagents_count}/14 Running (Crypto, Equities, FX, Commodities)\n"
+                f"• Outlets: Twitter VIP, Upbit, Binance, Benzinga, PR Newswire, Yahoo Finance, Fed/ECB, OPEC\n"
                 f"• Ingested Live Records: {headlines_ingested}\n"
-                f"• Execution Status: 🟢 100% Operational"
+                f"• Sizing Mode: $75 Standard / $150 Breaking Tier-1 | Hold: 30 Days\n"
+                f"• Status: 🟢 100% Operational"
             )
         except Exception:
             pass
@@ -183,7 +241,7 @@ class PokeAINewsAgentCluster:
     async def run_subagent_cycle(self):
         """Runs the autonomous sub-agent execution loop."""
         self.is_running = True
-        logger.info("🤖 [Poke AI Sub-Agent Cluster] Started with %d specialized tasks", len(self.tasks))
+        logger.info("🤖 [Poke AI Sub-Agent Cluster] Started with %d specialized tasks (Equities & Crypto)", len(self.tasks))
         
         # Dispatch initial boot notification to Poke AI
         self.send_poke_agent_heartbeat(len(self.tasks), len(self._seen_guids))
@@ -208,7 +266,7 @@ class PokeAINewsAgentCluster:
             if cycle_count % 300 == 0:  # Every ~15 mins
                 self.send_poke_agent_heartbeat(len(self.tasks), len(self._seen_guids))
 
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(1.0)
 
     async def _execute_task(self, task: PokeAgentTask) -> List[RawNewsRecord]:
         """Queries fast live news feeds under this sub-agent's mandate."""
@@ -223,7 +281,58 @@ class PokeAINewsAgentCluster:
             records.extend(await self._poll_binance_api(task, now_dt))
         elif "okx" in task.task_id:
             records.extend(await self._poll_bybit_api(task, now_dt))
+        elif "stock" in task.task_id or "commodities" in task.task_id or "forex" in task.task_id:
+            records.extend(await self._poll_rss_feed(task, now_dt))
 
+        return records
+
+    async def _poll_rss_feed(self, task: PokeAgentTask, now_dt: datetime) -> List[RawNewsRecord]:
+        """Polls institutional stock, macro, and news outlets via fast async parsing."""
+        records: List[RawNewsRecord] = []
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/rss+xml, application/xml, text/xml, application/json",
+        }
+        import feedparser
+        import aiohttp
+
+        for url in task.target_urls:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
+                        if resp.status == 200:
+                            content = await resp.text()
+                            feed = feedparser.parse(content)
+                            for entry in feed.entries[:5]:
+                                title = entry.get("title", "")
+                                link = entry.get("link", "")
+                                summary = entry.get("summary", "")
+                                guid = f"{task.task_id}_{link or title}"
+                                if guid in self._seen_guids:
+                                    continue
+                                self._seen_guids.add(guid)
+
+                                # Check keywords
+                                text_full = f"{title} {summary}".lower()
+                                if any(k in text_full for k in task.keywords):
+                                    records.append(
+                                        RawNewsRecord(
+                                            source_id=task.task_id,
+                                            publisher=task.name,
+                                            title=title,
+                                            body=summary,
+                                            url=link,
+                                            guid=guid,
+                                            published_at=now_dt,
+                                            ingested_at=now_dt,
+                                            trust_score=task.trust_score,
+                                            category=task.category,
+                                            raw={"poke_subagent": task.task_id, "feed_url": url},
+                                        )
+                                    )
+                                    logger.info("🚨 [Poke Sub-Agent: %s] Breaking Alert: %s", task.name[:25], title)
+            except Exception:
+                pass
         return records
 
     async def _poll_upbit_api(self, task: PokeAgentTask, now_dt: datetime) -> List[RawNewsRecord]:
