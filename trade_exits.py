@@ -20,6 +20,8 @@ COMMODITY = {"WTI", "BRENTOIL", "XAU", "XAG", "XCU", "XPT", "XPD", "NATGAS", "WH
 CRYPTO = {"BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "ADA", "AVAX", "BNB", "LTC", "LINK", "DOT"}
 
 
+import os
+
 def policy_for(
     symbol: str,
     override_tp: float | None = None,
@@ -27,16 +29,20 @@ def policy_for(
     atr_multiplier: float | None = None,
 ) -> ExitPolicy:
     sym = (symbol or "").upper()
+    # Support holding positions indefinitely / multi-day (default 30 days)
+    hold_days = float(os.getenv("NEWS_MAX_HOLD_DAYS", "30.0"))
+    max_hold_sec = hold_days * 86400.0
+
     if sym in FX:
-        base = ExitPolicy(0.40, 0.30, 0.25, 0.15, 45 * 60, 25)
+        base = ExitPolicy(0.40, 0.30, 0.25, 0.15, max_hold_sec, 25)
     elif sym in INDEX:
-        base = ExitPolicy(1.20, 0.80, 0.80, 0.50, 60 * 60, 40)
+        base = ExitPolicy(1.20, 0.80, 0.80, 0.50, max_hold_sec, 40)
     elif sym in COMMODITY:
-        base = ExitPolicy(2.00, 1.20, 1.20, 0.80, 60 * 60, 50)
+        base = ExitPolicy(2.00, 1.20, 1.20, 0.80, max_hold_sec, 50)
     elif sym in CRYPTO:
-        base = ExitPolicy(2.00, 1.50, 2.00, 1.00, 45 * 60, 80)
+        base = ExitPolicy(2.00, 1.50, 2.00, 1.00, max_hold_sec, 80)
     else:
-        base = ExitPolicy(1.50, 1.00, 1.00, 0.60, 90 * 60, 60)
+        base = ExitPolicy(1.50, 1.00, 1.00, 0.60, max_hold_sec, 60)
 
     tp = override_tp if override_tp is not None else base.tp_pct
     sl = override_sl if override_sl is not None else base.sl_pct
@@ -55,7 +61,7 @@ def policy_for(
         sl_pct=sl,
         trail_arm_pct=trail_arm,
         trail_gap_pct=trail_gap,
-        max_hold_seconds=base.max_hold_seconds,
+        max_hold_seconds=max_hold_sec,
         max_spread_bps=base.max_spread_bps,
     )
 

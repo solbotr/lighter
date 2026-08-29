@@ -2316,7 +2316,19 @@ class LighterNewsSniperBot:
         if side not in market.enabled_sides:
             self.metrics.inc("side_disabled")
             return
-        requested_usd = min(self.news_risk_gate.max_trade_usd, float(os.getenv("NEWS_REQUESTED_USD", "75")))
+        base_requested = float(os.getenv("NEWS_REQUESTED_USD", "75.0"))
+        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
+        
+        # Scale trade size dynamically above $75 for highest conviction breaking news
+        if event and event.confidence and event.confidence >= 0.85:
+            # 85% -> $100, 95%+ -> $150 (up to max_conviction_usd)
+            scale_factor = 1.0 + ((event.confidence - 0.85) / 0.15) * ((max_conviction_usd / base_requested) - 1.0)
+            scaled_usd = round(min(max_conviction_usd, base_requested * scale_factor), 2)
+            requested_usd = min(self.news_risk_gate.max_trade_usd, scaled_usd)
+            logger.info("🔥 [HIGH CONVICTION NEWS] Scaled sizing for %s from $%.2f to $%.2f (Conviction: %.1f%%)", market.symbol, base_requested, requested_usd, event.confidence * 100.0)
+        else:
+            requested_usd = min(self.news_risk_gate.max_trade_usd, base_requested)
+
         authorized = self._authorized()
         collateral = await self.executor.fetch_available_collateral_usd()
         momentum_confirmed = None
