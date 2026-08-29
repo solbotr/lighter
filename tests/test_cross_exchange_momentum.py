@@ -138,7 +138,7 @@ async def test_risk_gate_integration_with_momentum_filter():
         momentum_confirmed=True,
     )
     assert decision_ok.approved is True
-    assert decision_ok.sized_usd == 100.0
+    assert decision_ok.sized_usd == min(100.0, risk_gate.max_trade_usd)
 
     # 2. Explicit momentum failed -> Vetoed
     decision_veto = await risk_gate.approve(

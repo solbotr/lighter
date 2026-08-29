@@ -1241,13 +1241,15 @@ class MaxSizeExecutionEngine:
         if collateral_usd is None:
             return {"success": False, "error": "live collateral query failed"}
         if notional_usd is not None:
-            order_size = float(notional_usd) / max(1e-6, current_market_price)
+            capped_notional = min(float(notional_usd), float(os.getenv("NEWS_MAX_TRADE_USD", "75.0")))
+            order_size = capped_notional / max(1e-6, current_market_price)
         else:
             order_size = self.calculate_max_order_size(
                 collateral_usd,
                 current_market_price,
                 conviction=conviction,
                 margin_utilization_pct=margin_utilization_pct,
+                max_trade_usd=float(os.getenv("NEWS_MAX_TRADE_USD", "75.0")),
             )
         meta = self._meta(asset)
         min_base = float(meta.get("min_base_amount") or 0.0)
