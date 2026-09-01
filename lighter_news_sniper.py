@@ -2941,17 +2941,46 @@ class LighterNewsSniperBot:
         except Exception as we:
             logger.warning("Hyperliquid Whale Tracker startup fallback: %s", we)
 
-        # 4. Launch Volatility Squeeze Pre-Breakout Engine & Triangular Arbitrage Scanner
+        # 4. Launch Volatility Squeeze, Tri-Arb, Latency Arb & Maritime Geopolitical Sniper
         try:
             from volatility_squeeze_engine import VolatilitySqueezeEngine
             from triangular_arbitrage import TriangularArbitrageScanner
             from latency_arbitrage_engine import LatencyLeadArbitrageEngine
+            from maritime_geopolitical_sniper import MaritimeGeopoliticalSniper
             self.volatility_squeeze = VolatilitySqueezeEngine()
             self.triangular_scanner = TriangularArbitrageScanner()
             self.latency_arbitrage = LatencyLeadArbitrageEngine(min_dislocation_bps=12.0)
-            logger.info("⚡ [VOL SQUEEZE, TRI-ARB & LATENCY ARB] Pre-News Breakout, Triangular Arbitrage & Cross-DEX Latency Lead-Lag active")
+            
+            async def _on_geopolitical_incident(inc):
+                for target_asset in inc.target_assets:
+                    m = self.markets_by_symbol.get(target_asset)
+                    if m and m.market_id is not None:
+                        logger.info("🌍 [MARITIME GEOPOLITICAL SNIPE] %s -> %s (Side: %s, Conf: %.2f)", inc.headline, target_asset, inc.direction, inc.confidence)
+                        event = NormalizedNewsEvent(
+                            event_id=f"GEO_{inc.incident_id}",
+                            source_id="MARITIME_OSINT",
+                            publisher="GeopoliticalSniper",
+                            headline=inc.headline,
+                            body=inc.headline,
+                            url="",
+                            guid=inc.incident_id,
+                            published_at=datetime.now(timezone.utc),
+                            ingested_at=datetime.now(timezone.utc),
+                            source_score=0.95,
+                            category="GEOPOLITICAL_COMMODITY",
+                            content_hash=inc.incident_id,
+                            entities=(target_asset,),
+                            event_type=inc.chokepoint_type,
+                            direction=inc.direction,
+                            confidence=inc.confidence,
+                        )
+                        await self.handle_normalized_event(event)
+
+            self.maritime_sniper = MaritimeGeopoliticalSniper(on_incident_callback=_on_geopolitical_incident)
+            asyncio.create_task(self.maritime_sniper.start())
+            logger.info("⚡ [VOL SQUEEZE, TRI-ARB, LATENCY ARB & GEOPOLITICAL SNIPER] All engines active")
         except Exception as ve:
-            logger.warning("Vol Squeeze / Tri-Arb / Latency Arb startup fallback: %s", ve)
+            logger.warning("Vol Squeeze / Tri-Arb / Latency / Maritime startup fallback: %s", ve)
 
         try:
             while True:

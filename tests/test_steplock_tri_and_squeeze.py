@@ -71,3 +71,30 @@ def test_volatility_squeeze_engine():
     assert state is not None
     assert state.symbol == "ETH"
     assert state.volume_ratio >= 2.0
+
+
+def test_maritime_geopolitical_sniper():
+    from maritime_geopolitical_sniper import MaritimeGeopoliticalSniper
+
+    sniper = MaritimeGeopoliticalSniper()
+    
+    # 1. Red Sea / Hormuz oil tanker incident
+    inc1 = sniper.evaluate_text("Breaking: Oil tanker attacked by drone strike near Bab el-Mandeb in Red Sea")
+    assert inc1 is not None
+    assert "BRENTOIL" in inc1.target_assets
+    assert "WTI" in inc1.target_assets
+    assert "NATGAS" in inc1.target_assets
+    assert inc1.direction == "BULLISH"
+    assert inc1.confidence >= 0.90
+
+    # 2. Defense contract
+    inc2 = sniper.evaluate_text("Pentagon awards $450M defense satellite launch contract to expanding contractor")
+    assert inc2 is not None
+    assert "PLTR" in inc2.target_assets or "RKLB" in inc2.target_assets
+    assert inc2.direction == "BULLISH"
+
+    # 3. Safe haven war escalation
+    inc3 = sniper.evaluate_text("Emergency UN session called as air strikes launched following military invasion")
+    assert inc3 is not None
+    assert "XAU" in inc3.target_assets
+    assert "XAG" in inc3.target_assets
