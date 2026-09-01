@@ -2327,12 +2327,12 @@ class LighterNewsSniperBot:
             self.metrics.inc("side_disabled")
             return
         base_requested = float(os.getenv("NEWS_REQUESTED_USD", "100.0"))
-        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "250.0"))
+        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
         
-        # 📈 Dynamic Collateral Compounding Engine (Compound 8.5% of total collateral per trade)
+        # 📈 Dynamic Collateral Compounding Engine (Compound 5% of total collateral per trade)
         collateral = await self.executor.fetch_available_collateral_usd()
         if collateral and collateral > 0:
-            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "8.5"))  # 8.5% of margin per trade
+            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "5.0"))  # 5% of margin per trade
             compounded_base = round(collateral * (compounding_pct / 100.0), 2)
             base_requested = max(base_requested, min(max_conviction_usd, compounded_base))
             logger.info("📈 [AUTO-COMPOUNDING] Sizing dynamically set to $%.2f (Collateral: $%.2f, Rate: %.1f%%)", base_requested, collateral, compounding_pct)
