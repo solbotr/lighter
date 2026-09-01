@@ -46,19 +46,20 @@ def test_subaccount_manager_default_initialization():
     sniper_prof = mgr.get_subaccount(SubaccountRole.SNIPER)
     assert sniper_prof is not None
     assert sniper_prof.account_index == 737649
-    assert sniper_prof.target_allocation_pct == 40.0
+    assert sniper_prof.target_allocation_pct > 0.0
 
     # Verify MM subaccount
     mm_prof = mgr.get_subaccount(SubaccountRole.MARKET_MAKER)
     assert mm_prof is not None
     assert mm_prof.account_index == 281474976497685
-    assert mm_prof.target_allocation_pct == 40.0
+    assert mm_prof.target_allocation_pct > 0.0
 
     # Verify Arb subaccount
     arb_prof = mgr.get_subaccount(SubaccountRole.ARBITRAGE)
     assert arb_prof is not None
     assert arb_prof.account_index == 281474976497686
-    assert arb_prof.target_allocation_pct == 20.0
+    assert arb_prof.target_allocation_pct > 0.0
+    assert round(sniper_prof.target_allocation_pct + mm_prof.target_allocation_pct + arb_prof.target_allocation_pct, 1) == 100.0
 
 
 def test_subaccount_manager_routing():
@@ -104,13 +105,14 @@ def test_subaccount_manager_state_updates():
 
 
 def test_subaccount_manager_rebalance_recommendations():
-    mgr = SubaccountManager()
+    # Construct manager with explicit 40/40/20 test profiles
+    mgr = SubaccountManager(profiles={
+        SubaccountRole.SNIPER: SubaccountProfile(role=SubaccountRole.SNIPER, account_index=737649, name="Sniper", description="", target_allocation_pct=40.0),
+        SubaccountRole.MARKET_MAKER: SubaccountProfile(role=SubaccountRole.MARKET_MAKER, account_index=281474976497685, name="MM", description="", target_allocation_pct=40.0),
+        SubaccountRole.ARBITRAGE: SubaccountProfile(role=SubaccountRole.ARBITRAGE, account_index=281474976497686, name="Arb", description="", target_allocation_pct=20.0),
+    })
     
-    # Set unbalanced distribution:
-    # Total pool = $100
-    # Sniper has $90 (target 40% = $40 -> +$50 surplus)
-    # MM has $5 (target 40% = $40 -> -$35 deficit)
-    # Arb has $5 (target 20% = $20 -> -$15 deficit)
+    # Set unbalanced distribution: Total = $100
     mgr.update_state(737649, collateral_usd=90.0, available_margin_usd=90.0)
     mgr.update_state(281474976497685, collateral_usd=5.0, available_margin_usd=5.0)
     mgr.update_state(281474976497686, collateral_usd=5.0, available_margin_usd=5.0)
@@ -452,6 +454,11 @@ async def test_subaccount_transfer_validation():
 
 @pytest.mark.asyncio
 async def test_tg_bot_rebalance_execution_callbacks(tg_bot):
+    # Set explicit target allocations for test
+    tg_bot.subaccount_mgr.profiles[SubaccountRole.SNIPER].target_allocation_pct = 40.0
+    tg_bot.subaccount_mgr.profiles[SubaccountRole.MARKET_MAKER].target_allocation_pct = 40.0
+    tg_bot.subaccount_mgr.profiles[SubaccountRole.ARBITRAGE].target_allocation_pct = 20.0
+
     # Set unbalanced state
     tg_bot.subaccount_mgr.update_state(737649, collateral_usd=50.0, available_margin_usd=50.0)
     tg_bot.subaccount_mgr.update_state(737650, collateral_usd=1.0, available_margin_usd=1.0)

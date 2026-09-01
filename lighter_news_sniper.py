@@ -150,6 +150,8 @@ class ActivePosition:
     tp_hits: int = 0
     atr_multiplier: float = 1.0
     volatility_expanded: bool = False
+    catalyst_headline: str = ""
+    catalyst_type: str = ""
 
 
 # =============================================================================
@@ -636,7 +638,14 @@ class MaxSizeExecutionEngine:
             pos.atr_multiplier = mult
             pos.volatility_expanded = vol_state.is_violent_catalyst
 
-        policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None, atr_multiplier=mult)
+        policy = policy_for(
+            pos.asset,
+            override_tp=pos.tp_pct or None,
+            override_sl=pos.sl_pct or None,
+            atr_multiplier=mult,
+            news_headline=getattr(pos, "catalyst_headline", None),
+            catalyst_type=getattr(pos, "catalyst_type", None),
+        )
         pos.tp_pct = pos.tp_pct or policy.tp_pct
         pos.sl_pct = pos.sl_pct or policy.sl_pct
         pos.max_hold_seconds = pos.max_hold_seconds or policy.max_hold_seconds
@@ -2317,18 +2326,39 @@ class LighterNewsSniperBot:
         if side not in market.enabled_sides:
             self.metrics.inc("side_disabled")
             return
-        base_requested = float(os.getenv("NEWS_REQUESTED_USD", "75.0"))
-        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
+        base_requested = float(os.getenv("NEWS_REQUESTED_USD", "100.0"))
+        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "250.0"))
         
-        # Scale trade size dynamically above $75 for highest conviction breaking news
+        # 📈 Dynamic Collateral Compounding Engine (Compound 8.5% of total collateral per trade)
+        collateral = await self.executor.fetch_available_collateral_usd()
+        if collateral and collateral > 0:
+            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "8.5"))  # 8.5% of margin per trade
+            compounded_base = round(collateral * (compounding_pct / 100.0), 2)
+            base_requested = max(base_requested, min(max_conviction_usd, compounded_base))
+            logger.info("📈 [AUTO-COMPOUNDING] Sizing dynamically set to $%.2f (Collateral: $%.2f, Rate: %.1f%%)", base_requested, collateral, compounding_pct)
+
+        # Scale trade size dynamically above base for highest conviction breaking news
         if event and event.confidence and event.confidence >= 0.85:
-            # 85% -> $100, 95%+ -> $150 (up to max_conviction_usd)
-            scale_factor = 1.0 + ((event.confidence - 0.85) / 0.15) * ((max_conviction_usd / base_requested) - 1.0)
+            # 85% -> base, 95%+ -> max_conviction_usd
+            scale_factor = 1.0 + ((event.confidence - 0.85) / 0.15) * ((max_conviction_usd / max(1.0, base_requested)) - 1.0)
             scaled_usd = round(min(max_conviction_usd, base_requested * scale_factor), 2)
             requested_usd = min(self.news_risk_gate.max_trade_usd, scaled_usd)
             logger.info("🔥 [HIGH CONVICTION NEWS] Scaled sizing for %s from $%.2f to $%.2f (Conviction: %.1f%%)", market.symbol, base_requested, requested_usd, event.confidence * 100.0)
         else:
             requested_usd = min(self.news_risk_gate.max_trade_usd, base_requested)
+
+        # ⚡ Microstructure L2 Order Book Imbalance Sizing Booster (+25% to +50% on heavy orderbook pressure)
+        try:
+            depth_book = getattr(self.executor, "depth_book", None)
+            if depth_book and hasattr(depth_book, "calculate_order_book_imbalance"):
+                obi = depth_book.calculate_order_book_imbalance(depth=5)
+                # If buying and bids heavily outweigh asks (OBI > +0.30) OR selling and asks outweigh bids (OBI < -0.30)
+                if (side.startswith("BUY") and obi >= 0.30) or (side.startswith("SELL") and obi <= -0.30):
+                    obi_boost = min(1.5, 1.0 + abs(obi) * 0.5)
+                    requested_usd = round(min(max_conviction_usd, requested_usd * obi_boost), 2)
+                    logger.info("⚡ [L2 IMBALANCE BOOST] Order book imbalance %.2f boosted sizing for %s to $%.2f", obi, market.symbol, requested_usd)
+        except Exception as e:
+            logger.debug("L2 Imbalance check skipped: %s", e)
 
         authorized = self._authorized()
         collateral = await self.executor.fetch_available_collateral_usd()
@@ -2417,6 +2447,17 @@ class LighterNewsSniperBot:
             self.positions.activate_from_fill(intent)
             self.news_risk_gate.record_fill(market.symbol)
             self.metrics.inc("filled_live" if self.is_live else "filled_paper")
+
+            # Attach catalyst headline & type directly to executor active position
+            active_exec_pos = self.executor.existing_position(market.symbol, int(snapshot.market_index or market.market_index))
+            if active_exec_pos:
+                active_exec_pos.catalyst_headline = event.headline
+                active_exec_pos.catalyst_type = getattr(event, "event_type", "")
+                self.executor.ensure_exit_prices(active_exec_pos)
+                result["tp_pct"] = active_exec_pos.tp_pct
+                result["sl_pct"] = active_exec_pos.sl_pct
+                result["tp_target_price"] = active_exec_pos.tp_price
+                result["sl_price"] = active_exec_pos.sl_price
             from news_scoreboard import ShadowBet
             self.scoreboard.record(ShadowBet(
                 bet_id=event.event_id + "_live", asset=market.symbol, side=side, event_type=event.event_type,
@@ -2539,6 +2580,28 @@ class LighterNewsSniperBot:
                         logger.info("Order care %s", care)
                 except Exception as care_err:
                     logger.debug("Order care skipped: %s", care_err)
+                # 2. Dynamic Parabolic Profit Step-Lock Evaluation (+5% -> +3% lock, +10% -> +7.5% lock)
+                from parabolic_profit_steplock import calculate_parabolic_steplock
+                for pos in list(self.executor.active_positions.values()):
+                    if pos.is_active and pos.entry_price > 0:
+                        mark = prices.get(pos.asset.upper()) or snap.price if (snap := self.tickers.get(pos.asset)) else 0.0
+                        if mark > 0:
+                            step_res = calculate_parabolic_steplock(
+                                side=pos.side,
+                                entry_price=pos.entry_price,
+                                current_mark_price=mark,
+                                highest_price=getattr(pos, "highest_price", 0.0),
+                                lowest_price=getattr(pos, "lowest_price", float("inf")),
+                                existing_sl_price=pos.sl_price,
+                            )
+                            if step_res.is_updated and step_res.new_sl_price > 0:
+                                pos.sl_price = step_res.new_sl_price
+                                pos.pending_sl_amend = True
+                                logger.info(
+                                    "🔒 [PARABOLIC STEP-LOCK] %s SL stepped up to $%.4f (Locked: +%.1f%%, Reason: %s)",
+                                    pos.asset, pos.sl_price, step_res.locked_profit_pct, step_res.reason
+                                )
+
                 events = harvested + await self.executor.check_take_profit_and_stop_loss(prices)
                 for pos in list(self.executor.active_positions.values()):
                     if pos.is_active and pos.pending_sl_amend:
@@ -2854,6 +2917,41 @@ class LighterNewsSniperBot:
             logger.info("🤖 [Poke AI] Autonomous Sub-Agent News Cluster active (Twitter VIP, Upbit KRW, Binance Launchpool)")
         except Exception as e:
             logger.warning("Poke AI cluster startup fallback: %s", e)
+
+        # 3. Launch Hyperliquid Whale Flow Front-Runner ($250k+ Institutional Market Tape)
+        try:
+            from hyperliquid_whale_tracker import HyperliquidWhaleTracker
+            async def handle_whale_signal(sig: Dict[str, Any]):
+                from news_pipeline import NewsRecord
+                rec = NewsRecord(
+                    source_id=f"HL_WHALE_{sig.get('asset')}",
+                    headline=sig.get("headline", ""),
+                    direction="BULLISH" if sig.get("side") == "BUY" else "BEARISH",
+                    event_type="WHALE_TAPE_BURST",
+                    confidence=float(sig.get("conviction", 0.88)),
+                    entities=[sig.get("asset", "")],
+                    published_at=time.time(),
+                )
+                logger.info("🐋 [WHALE FRONT-RUNNER] Received Hyperliquid Whale Flow: %s", rec.headline)
+                await self.on_incoming_news([rec])
+
+            self.whale_tracker = HyperliquidWhaleTracker(on_whale_signal=handle_whale_signal)
+            asyncio.create_task(self.whale_tracker.start())
+            logger.info("🐋 [Whale Flow Front-Runner] Real-time Hyperliquid tape & liquidation front-runner active")
+        except Exception as we:
+            logger.warning("Hyperliquid Whale Tracker startup fallback: %s", we)
+
+        # 4. Launch Volatility Squeeze Pre-Breakout Engine & Triangular Arbitrage Scanner
+        try:
+            from volatility_squeeze_engine import VolatilitySqueezeEngine
+            from triangular_arbitrage import TriangularArbitrageScanner
+            from latency_arbitrage_engine import LatencyLeadArbitrageEngine
+            self.volatility_squeeze = VolatilitySqueezeEngine()
+            self.triangular_scanner = TriangularArbitrageScanner()
+            self.latency_arbitrage = LatencyLeadArbitrageEngine(min_dislocation_bps=12.0)
+            logger.info("⚡ [VOL SQUEEZE, TRI-ARB & LATENCY ARB] Pre-News Breakout, Triangular Arbitrage & Cross-DEX Latency Lead-Lag active")
+        except Exception as ve:
+            logger.warning("Vol Squeeze / Tri-Arb / Latency Arb startup fallback: %s", ve)
 
         try:
             while True:

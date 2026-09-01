@@ -177,8 +177,8 @@ class SubaccountManager:
                 api_key_index=int(os.getenv("LIGHTER_SNIPER_API_KEY_INDEX") or os.getenv("LIGHTER_API_KEY_INDEX") or "5"),
                 public_key=os.getenv("LIGHTER_SNIPER_PUBLIC_KEY") or os.getenv("LIGHTER_PUBLIC_KEY") or os.getenv("LIGHTER_API_PUBLIC_KEY") or "",
                 private_key=os.getenv("LIGHTER_SNIPER_PRIVATE_KEY") or os.getenv("LIGHTER_PRIVATE_KEY") or os.getenv("LIGHTER_API_PRIVATE_KEY") or "",
-                target_allocation_pct=40.0,
-                min_collateral_usd=1.0,
+                target_allocation_pct=float(os.getenv("LIGHTER_SNIPER_ALLOCATION_PCT", "90.0" if os.getenv("SUBACCOUNT_90_10_SPLIT") == "1" else "40.0")),
+                min_collateral_usd=float(os.getenv("LIGHTER_SNIPER_MIN_COLLATERAL", "1.0")),
                 max_leverage=10.0,
             ),
             SubaccountProfile(
@@ -189,7 +189,7 @@ class SubaccountManager:
                 api_key_index=int(os.getenv("LIGHTER_MM_API_KEY_INDEX") or "4"),
                 public_key=os.getenv("LIGHTER_MM_PUBLIC_KEY") or "",
                 private_key=os.getenv("LIGHTER_MM_PRIVATE_KEY") or "",
-                target_allocation_pct=40.0,
+                target_allocation_pct=float(os.getenv("LIGHTER_MM_ALLOCATION_PCT", "5.0" if os.getenv("SUBACCOUNT_90_10_SPLIT") == "1" else "40.0")),
                 min_collateral_usd=1.0,
                 max_leverage=5.0,
             ),
@@ -201,9 +201,9 @@ class SubaccountManager:
                 api_key_index=int(os.getenv("LIGHTER_ARB_API_KEY_INDEX") or "4"),
                 public_key=os.getenv("LIGHTER_ARB_PUBLIC_KEY") or "",
                 private_key=os.getenv("LIGHTER_ARB_PRIVATE_KEY") or "",
-                target_allocation_pct=20.0,
-                min_collateral_usd=0.5,
-                max_leverage=8.0,
+                target_allocation_pct=float(os.getenv("LIGHTER_ARB_ALLOCATION_PCT", "5.0" if os.getenv("SUBACCOUNT_90_10_SPLIT") == "1" else "20.0")),
+                min_collateral_usd=1.0,
+                max_leverage=5.0,
             ),
         ]
 
