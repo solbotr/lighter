@@ -26,16 +26,89 @@ logger = logging.getLogger(__name__)
 HYPERLIQUID_API_URL = "https://api.hyperliquid.xyz/info"
 HYPERLIQUID_WS_URL = "wss://api.hyperliquid.xyz/ws"
 
-# Known Top Alpha Whales on Hyperliquid (PnL > $5M+)
-CURATED_WHALES = [
-    "0x5055fc18dbd809559c7becc3e9f50e93eb220807",  # Top Leaderboard #1
-    "0x010461c14e146ac35fe42271bdc1134ee31c703a",  # Institutional Trend Follower
-    "0x63c32cf98b1836efd02a0a204620f4ff260aa7f3",  # High-Frequency Scalp Whale
-    "0x31694f275752945d8b8ff796ff6d5f7f32cb4135",  # HYPE/SOL Ecosystem Whale
-    "0xa518b0f803c733367ec922d56a29be1900ce5eb2",  # Top 10 PnL
-]
+# 12 Profitable Hyperliquid Smart Money & Whale Profiles
+SMART_MONEY_PROFILES: Dict[str, Dict[str, Any]] = {
+    # 🎯 Concentrated Directional Whale (Conviction: 95%)
+    "0x862dd8e68f30693e3d3c9daa42a440bc6d2a1f0c": {
+        "alias": "Directional Whale Alpha",
+        "category": "CONCENTRATED_DIRECTIONAL",
+        "confidence": 0.95,
+        "min_notional_usd": 50000.0,
+    },
+    # ⚡ Active Intraday Trading / Scalping (Conviction: 88%)
+    "0xc926ddba8b7617dbc65712f20cf8e1b58b8598d3": {
+        "alias": "HL Scalper Elite #1",
+        "category": "INTRADAY_SCALPER",
+        "confidence": 0.88,
+        "min_notional_usd": 25000.0,
+    },
+    "0x8c625ff57d8a4374784c7eff585dfdc42ccec974": {
+        "alias": "HL Scalper Elite #2",
+        "category": "INTRADAY_SCALPER",
+        "confidence": 0.88,
+        "min_notional_usd": 25000.0,
+    },
+    "0x77375a8c9d13bf79afb2a87f1b0ac1dfd5f5bf66": {
+        "alias": "HL Scalper Elite #3",
+        "category": "INTRADAY_SCALPER",
+        "confidence": 0.88,
+        "min_notional_usd": 25000.0,
+    },
+    # 🏛️ High-Turnover, Two-Sided Execution / Market Making
+    "0x399965e15d4e61ec3529cc98b7f7ebb93b733336": {
+        "alias": "MM Liquidity #1",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0x7839e2f2c375dd2935193f2736167514efff9916": {
+        "alias": "MM Liquidity #2",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0x6ba889db7f923622d3548f621ecc2054b80c1817": {
+        "alias": "MM Liquidity #3",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0x03b9a189e2480d1e4c3007080b29f362282130fa": {
+        "alias": "MM Liquidity #4",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0xb07856ebcb6b37967eaf7c4b4e64dcce28c6de15": {
+        "alias": "MM Liquidity #5",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0xe4c6ae25959d7fc66cf2dd5965fb78c5e09c4048": {
+        "alias": "MM Liquidity #6",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0x523852be2db1a76a0e088ecbff32e849544054e5": {
+        "alias": "MM Liquidity #7",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+    "0x04dbde5c9d1e6a3239c8ff8ee3fca386a4a3c605": {
+        "alias": "MM Liquidity #8",
+        "category": "MARKET_MAKER",
+        "confidence": 0.82,
+        "min_notional_usd": 75000.0,
+    },
+}
 
-MIN_WHALE_TRADE_USD = float(os.getenv("MIN_WHALE_TRADE_USD", "250000.0"))
+# Curated List of all active Smart Money addresses
+CURATED_WHALES = list(SMART_MONEY_PROFILES.keys())
+
+MIN_WHALE_TRADE_USD = float(os.getenv("MIN_WHALE_TRADE_USD", "25000.0"))
 
 
 @dataclass
@@ -110,28 +183,37 @@ class HyperliquidWhaleTracker:
                 pos_key = f"{whale}_{coin}"
                 prev_pos = self.previous_positions.get(pos_key)
 
-                # Detect new position or major size expansion (> $250k)
-                if notional >= self.min_notional_usd:
+                # Read tailored whale profile metadata
+                prof = SMART_MONEY_PROFILES.get(whale.lower(), {})
+                min_threshold = prof.get("min_notional_usd", self.min_notional_usd)
+                conviction = prof.get("confidence", 0.90)
+                alias = prof.get("alias", f"Whale ({whale[:6]}...{whale[-4:]})")
+                cat = prof.get("category", "SMART_MONEY")
+
+                # Detect new position or major size expansion (> $25k)
+                if notional >= min_threshold:
                     is_new = prev_pos is None
-                    is_expanded = prev_pos and (notional - prev_pos.get("notional", 0.0) >= 100_000.0)
+                    is_expanded = prev_pos and (notional - prev_pos.get("notional", 0.0) >= 20_000.0)
 
                     if is_new or is_expanded:
                         signal = {
                             "type": "WHALE_POSITION_ENTRY",
                             "source": "Hyperliquid Smart Money",
                             "trader": f"{whale[:6]}...{whale[-4:]}",
+                            "trader_alias": alias,
+                            "category": cat,
                             "asset": coin,
                             "side": "BUY" if side == "LONG" else "SELL",
                             "notional_usd": notional,
                             "entry_price": entry_px,
                             "size": abs(szi),
-                            "conviction": 0.92,
-                            "headline": f"🐋 Hyperliquid Whale ({whale[:6]}...{whale[-4:]}) opened ${notional:,.0f} {side} on {coin} @ ${entry_px:,.2f}",
+                            "conviction": conviction,
+                            "headline": f"🐋 [{alias}] opened ${notional:,.0f} {side} on {coin} @ ${entry_px:,.2f}",
                             "timestamp": time.time(),
                         }
                         new_signals.append(signal)
                         self.recent_signals.append(signal)
-                        if len(self.recent_signals) > 30:
+                        if len(self.recent_signals) > 50:
                             self.recent_signals.pop(0)
 
                         if self.on_whale_signal:
