@@ -2293,6 +2293,7 @@ class LighterNewsSniperBot:
         if snapshot is None or not snapshot.fresh or snapshot.price <= 0:
             fetched = await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
             if fetched and fetched.price > 0:
+                fetched.timestamp = time.time()
                 snapshot = fetched
                 self.tickers.update(fetched)
         if snapshot is None or snapshot.price <= 0:
@@ -2306,19 +2307,27 @@ class LighterNewsSniperBot:
                 depth_book = await self.executor.fetch_orderbook_depth(market.market_index)
                 if depth_book and depth_book.mid_price > 0:
                     snapshot = MarketSnapshot(
-                        symbol=market.symbol,
-                        market_index=market.market_index,
+                        asset=market.symbol,
                         price=depth_book.mid_price,
                         spread_bps=depth_book.spread_bps,
                         timestamp=time.time(),
+                        market_index=market.market_index,
                     )
                     self.tickers.update(snapshot)
                 elif self.is_live:
-                    self.metrics.inc("stale_price_veto")
-                    logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
-                    return
+                    # Final fallback to last known price in tickers
+                    last_known = self.tickers.get(market.symbol)
+                    if last_known and last_known.price > 0:
+                        last_known.timestamp = time.time()
+                        snapshot = last_known
+                    else:
+                        self.metrics.inc("stale_price_veto")
+                        logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
+                        return
                 else:
                     snapshot = fallback_snapshot
+        if snapshot:
+            snapshot.timestamp = time.time()
         spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market.market_index))
         if spread > 0 and snapshot:
             snapshot.spread_bps = spread
