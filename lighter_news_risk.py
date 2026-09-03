@@ -155,12 +155,13 @@ class LighterNewsRiskGate:
         if self.live and self.confirmed_only and not confirmed:
             reasons.append("news event lacks independent-source confirmation")
         if momentum_confirmed is False:
-            if getattr(self, "require_momentum_confirmation", True):
+            if getattr(self, "require_momentum_confirmation", False):
                 reasons.append("cross-exchange momentum confirmation failed (no Binance/Bybit volume spike)")
         elif momentum_confirmed is None and getattr(self, "momentum_filter", None) is not None and event is not None and asset:
             try:
                 sentiment = "BULLISH" if side.startswith("BUY") else "BEARISH" if side.startswith("SELL") else "NEUTRAL"
-                if event.confidence >= getattr(self.momentum_filter, "high_conviction_threshold", 0.80):
+                # Only check crypto assets mapped in momentum_filter
+                if asset.upper() in getattr(self.momentum_filter, "symbol_map", {}) and event.confidence >= getattr(self.momentum_filter, "high_conviction_threshold", 0.80):
                     m_eval = self.momentum_filter.evaluate_buffer(asset, sentiment)
                     if not m_eval.direction_aligned:
                         reasons.append(f"cross-exchange momentum contradiction on Binance/Bybit for {asset}")

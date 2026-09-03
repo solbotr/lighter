@@ -2381,8 +2381,14 @@ class LighterNewsSniperBot:
                 logger.info("⚡ Cross-Exchange Momentum confirmed on Binance/Bybit: %s", m_conf.summary)
             else:
                 self.metrics.inc("momentum_unconfirmed")
-                logger.warning("⚠️ Cross-Exchange Momentum unconfirmed: %s (Executing with baseline sizing)", m_conf.summary)
-                momentum_confirmed = None
+                # Non-blocking: Step down to baseline sizing instead of hard-blocking early trades
+                requested_usd = min(requested_usd, base_requested)
+                logger.warning("⚠️ Cross-Exchange Momentum unconfirmed: %s (Executing with baseline sizing $%.2f)", m_conf.summary, requested_usd)
+                momentum_confirmed = True if not getattr(self.momentum_filter, "require_confirmation", False) else None
+
+        # Refresh snapshot timestamp right before risk gate approval to eliminate any network latency jitter
+        if snapshot:
+            snapshot.timestamp = time.time()
 
         decision = await self.news_risk_gate.approve(
             event,

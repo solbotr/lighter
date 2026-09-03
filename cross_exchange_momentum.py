@@ -250,9 +250,27 @@ class CrossExchangeMomentumFilter:
     ) -> MomentumConfirmation:
         """
         Queries Binance and Bybit concurrently in <100ms to verify cross-exchange momentum.
+        Non-crypto assets (equities, commodities, FX, indices) auto-confirm without Binance/Bybit queries.
         """
         t0 = time.perf_counter()
         asset_sym = asset.upper()
+        
+        # If asset is not in symbol_map (e.g. TSLA, NVDA, BRENTOIL, GOLD), do not veto or query crypto exchanges
+        if asset_sym not in self.symbol_map:
+            return MomentumConfirmation(
+                confirmed=True,
+                spike_ratio=1.0,
+                binance_vol_usd=0.0,
+                bybit_vol_usd=0.0,
+                total_vol_usd=0.0,
+                buy_ratio=0.5,
+                direction_aligned=True,
+                latency_ms=round((time.perf_counter() - t0) * 1000.0, 2),
+                asset=asset_sym,
+                sentiment=sentiment.upper(),
+                reasons=("Non-crypto asset bypassed cross-exchange check",),
+            )
+
         mapping = self.symbol_map.get(asset_sym, {"binance": f"{asset_sym}USDT", "bybit": f"{asset_sym}USDT"})
 
         # Check existing buffer first
