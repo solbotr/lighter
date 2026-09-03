@@ -197,6 +197,23 @@ class NewsConfirmationEngine:
             confidence = min(confidence, 0.35)
         if event.official_verified:
             confidence = min(0.99, confidence + 0.08)
+
+        # Upgrade 1 — Bayesian Conviction Blend: weight in 90-day historical win-rate
+        try:
+            from lighter_db import LighterDBManager as _LDB
+            _db = _LDB()
+            _hist_wr = _db.win_rate_for(
+                event_type=event_type,
+                asset=getattr(event, "primary_entity", "") or "",
+                lookback_days=90,
+            )
+            if _hist_wr is not None:
+                # 70% static formula + 30% historical win-rate Bayesian blend
+                confidence = round(0.70 * confidence + 0.30 * _hist_wr, 4)
+                confidence = min(0.99, max(0.05, confidence))
+        except Exception:
+            pass  # Never block a trade signal on DB errors
+
         return replace(
             event,
             event_type=event_type,

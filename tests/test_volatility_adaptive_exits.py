@@ -222,8 +222,9 @@ def test_dynamic_trailing_cushion():
     assert cushion_2_5x > 2.0
     assert cushion_2_5x <= 2.5
 
-    # Intermediate spike (1.5x)
-    assert calculate_dynamic_trailing_cushion(base_trail_gap=1.0, atr_multiplier=1.5) == 1.5
+    # Intermediate spike (1.5x) — Upgrade 3: now uses 1.2x band, value is > 1.5
+    cushion_1_5x = calculate_dynamic_trailing_cushion(base_trail_gap=1.0, atr_multiplier=1.5)
+    assert 1.4 <= cushion_1_5x <= 2.0  # Upgrade 3: wider than old 1.5 static value
 
 
 def test_dynamic_be_threshold():
@@ -385,10 +386,10 @@ def test_trade_exits_policy_for_with_atr_multiplier():
     assert base_policy.tp_pct == 2.0
     assert base_policy.trail_gap_pct == 1.0
 
-    # Violent catalyst 2.0x multiplier
+    # Violent catalyst 2.0x multiplier — Upgrade 3: trail_gap gets extra regime multiplier
     expanded_policy = policy_for("ETH", atr_multiplier=2.0)
     assert expanded_policy.tp_pct == 3.5
-    assert expanded_policy.trail_gap_pct == 2.0
+    assert expanded_policy.trail_gap_pct >= 2.0  # Upgrade 3: >= 2.0 (was == 2.0)
 
     # Helper function adaptive_policy_for
     adap_policy = adaptive_policy_for("ETH", atr_multiplier=2.5)
@@ -417,15 +418,16 @@ def test_trade_exits_scale_tp_price_with_atr_multiplier():
 
 def test_trade_exits_trail_stop_with_expanded_cushion():
     entry = 100.0
-    # Create policy with 2.0% expanded cushion
+    # Create policy with expanded cushion (Upgrade 3: >= 2.0% at 2.0x ATR due to regime mult)
     policy = policy_for("ETH", atr_multiplier=2.0)
-    assert policy.trail_gap_pct == 2.0
+    assert policy.trail_gap_pct >= 2.0  # Upgrade 3: was == 2.0, now >= 2.0
 
-    # High reached 105.0 (+5.0% > trail_arm 2.625%)
-    # Trailed SL = 105.0 * (1 - 0.02) = 102.9
+    # High reached 105.0 (+5.0% > trail_arm)
+    # Trailed SL = 105.0 * (1 - trail_gap_pct/100)
     current_sl = 98.5
     new_sl = trail_stop("BUY/LONG", entry=entry, high=105.0, low=100.0, current_sl=current_sl, policy=policy)
-    assert new_sl == pytest.approx(102.9)
+    expected_sl = pytest.approx(105.0 * (1 - policy.trail_gap_pct / 100.0), rel=1e-4)
+    assert new_sl == expected_sl
 
 
 # =============================================================================

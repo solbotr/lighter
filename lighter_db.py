@@ -97,6 +97,27 @@ class LighterDBManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_fills_market ON fills(market_index);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pnl_timestamp ON pnl_snapshots(timestamp);")
 
+        # Upgrade 1 — Bayesian Conviction Feedback: signal_outcomes table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS signal_outcomes (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                  REAL    NOT NULL DEFAULT (strftime('%s','now')),
+                event_type          TEXT    NOT NULL,
+                asset               TEXT    NOT NULL,
+                direction           TEXT    NOT NULL,
+                source_score        REAL,
+                confidence_at_entry REAL,
+                realized_pnl_pct    REAL,
+                hit_tp1             INTEGER DEFAULT 0,
+                hit_tp2             INTEGER DEFAULT 0,
+                hit_sl              INTEGER DEFAULT 0,
+                hold_seconds        REAL
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS ix_so_asset_type ON signal_outcomes(asset, event_type)"
+        )
+
         conn.commit()
         conn.close()
 
@@ -175,6 +196,66 @@ class LighterDBManager:
 
         conn.commit()
         conn.close()
+
+    # -------------------------------------------------------------------------
+    # Upgrade 1 — Bayesian Conviction Feedback Methods
+    # -------------------------------------------------------------------------
+    def record_signal_outcome(
+        self,
+        event_type: str,
+        asset: str,
+        direction: str,
+        source_score: float,
+        confidence_at_entry: float,
+        realized_pnl_pct: float,
+        hit_tp1: bool,
+        hit_tp2: bool,
+        hit_sl: bool,
+        hold_seconds: float,
+    ) -> None:
+        """Records the outcome of a sniped trade signal for Bayesian prior updating."""
+        conn = self.get_connection()
+        conn.execute(
+            """
+            INSERT INTO signal_outcomes
+                (event_type, asset, direction, source_score, confidence_at_entry,
+                 realized_pnl_pct, hit_tp1, hit_tp2, hit_sl, hold_seconds)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                event_type, asset.upper(), direction,
+                source_score, confidence_at_entry, realized_pnl_pct,
+                int(hit_tp1), int(hit_tp2), int(hit_sl), hold_seconds,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def win_rate_for(
+        self,
+        event_type: str,
+        asset: str,
+        lookback_days: int = 90,
+    ) -> Optional[float]:
+        """
+        Returns the 90-day historical win rate (hit_tp1=1 OR realized_pnl>0) for
+        this (event_type, asset) pair. Returns None if fewer than 5 samples exist.
+        """
+        cutoff = time.time() - lookback_days * 86400
+        conn = self.get_connection()
+        row = conn.execute(
+            """
+            SELECT COUNT(*) as total,
+                   SUM(CASE WHEN hit_tp1=1 OR realized_pnl_pct > 0 THEN 1 ELSE 0 END) as wins
+            FROM signal_outcomes
+            WHERE event_type=? AND asset=? AND ts >= ?
+            """,
+            (event_type, asset.upper(), cutoff),
+        ).fetchone()
+        conn.close()
+        if not row or row[0] < 5:
+            return None  # Insufficient history — don't bias the prior
+        return row[1] / row[0]
 
     def record_pnl_snapshot(
         self,

@@ -87,13 +87,24 @@ def policy_for(
         trail_arm = max(trail_arm, 2.50)
         trail_gap = max(trail_gap, 1.20)
 
-    # Volatility / ATR Expansion
+    # Volatility / ATR Expansion — regime-adaptive trail and TP (Upgrade 3)
     if atr_multiplier is not None and atr_multiplier > 1.0:
         from volatility_adaptive_exits import calculate_dynamic_tp_levels, calculate_dynamic_trailing_cushion
         tp1, _ = calculate_dynamic_tp_levels(base_tp1=tp, base_tp2=tp * 2.0, atr_multiplier=atr_multiplier)
         tp = tp1
         trail_gap = calculate_dynamic_trailing_cushion(base_trail_gap=trail_gap, atr_multiplier=atr_multiplier)
+        # Regime-adaptive trail width
+        if atr_multiplier >= 3.0:
+            trail_gap = max(trail_gap, trail_gap * 2.5)   # High vol: wider trail avoids wick-outs
+        elif atr_multiplier >= 1.5:
+            trail_gap = max(trail_gap, trail_gap * 1.6)   # Moderate vol expansion
+        elif atr_multiplier < 0.7:
+            trail_gap = min(trail_gap, trail_gap * 0.6)   # Low vol: tighter trail locks more profit
         trail_arm = max(trail_arm, round(tp * 0.75, 4))
+        # Commodity assets in vol expansion: widen minimum TP targets
+        if sym in COMMODITY and atr_multiplier >= 1.5:
+            tp = max(tp, 3.5)
+            trail_arm = max(trail_arm, 2.5)
 
     return ExitPolicy(
         tp_pct=tp,
@@ -153,7 +164,7 @@ def scale_tp_price(
 ) -> float:
     """TP price for scale-out level 1..3 with dynamic volatility expansion."""
     lvl = max(1, min(3, int(level)))
-    if atr_multiplier is not None and atr_multiplier >= 2.0:
+    if atr_multiplier is not None and atr_multiplier >= 1.2:  # Upgrade 3: was >= 2.0
         from volatility_adaptive_exits import calculate_dynamic_tp_levels
         base_tp = policy.tp_pct if policy is not None and policy.tp_pct else 2.0
         tp1, tp2 = calculate_dynamic_tp_levels(base_tp1=base_tp, base_tp2=base_tp * 2.0, atr_multiplier=atr_multiplier)

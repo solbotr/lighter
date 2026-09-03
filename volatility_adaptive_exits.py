@@ -303,15 +303,22 @@ def calculate_dynamic_trailing_cushion(
 ) -> float:
     """
     Dynamic Trailing Stop Cushion:
-    - Expand trailing cushion from 1.0% to 2.0% on high-volatility spikes (ATR mult >= 2.0x)
-      to avoid early wick-outs.
-    - Interpolates smoothly for intermediate spikes.
+    - Expand trailing cushion on high-volatility spikes to avoid early wick-outs.
+    - ATR >= 3.0x: 2.5x wider trail | ATR >= 2.0x: 2.0x | ATR >= 1.2x: 1.25x (Upgrade 3: was >= 2.0 only).
     """
+    if atr_multiplier >= 3.0:
+        return round(min(base_trail_gap * 2.5, base_trail_gap + 3.0), 4)
     if atr_multiplier >= 2.0:
         # At 2.0x and above -> full 2.0% cushion (up to max 2.5% for extreme 3.5x+ spikes)
         excess = min(1.0, (atr_multiplier - 2.0) / 1.5)
         cushion = 2.0 + excess * 0.5
         return round(min(2.5, cushion), 4)
+
+    if atr_multiplier >= 1.2:
+        # Moderate expansion: 1.2x-2.0x -> cushion widens from 1.25x to 2.0x base (Upgrade 3)
+        alpha = (atr_multiplier - 1.2) / 0.8   # 0.0 at 1.2x, 1.0 at 2.0x
+        cushion = base_trail_gap * (1.25 + alpha * 0.75)
+        return round(min(2.0, cushion), 4)
 
     if atr_multiplier > 1.0:
         alpha = atr_multiplier - 1.0

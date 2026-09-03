@@ -56,6 +56,54 @@ def live_execution_allowed(cli_live: bool) -> bool:
         return True
     return True
 
+# =============================================================================
+# UPGRADE 5 — Session-Aware Sizing Gate
+# =============================================================================
+_CRYPTO_SESSION_ASSETS = {
+    "BTC","ETH","SOL","HYPE","XRP","DOGE","ADA","AVAX","BNB","LTC",
+    "LINK","DOT","XLM","SUI","TRX","ATOM","MATIC","ARB","OP","APT","HYPE"
+}
+_FX_SESSION_ASSETS = {
+    "EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCAD","USDCHF","USDHKD","USDKRW"
+}
+_COMMODITY_SESSION_ASSETS = {
+    "WTI","BRENTOIL","XAU","XAG","XCU","XPT","XPD","NATGAS","WHEAT","PAXG","XAUT"
+}
+
+
+def session_size_multiplier(symbol: str) -> float:
+    """
+    Returns a sizing multiplier (0.40 – 1.00) based on asset class + current UTC session.
+    Equities: full size during NYSE hours 13:30–20:00 UTC (pre-market 0.65x, after-hours 0.45x).
+    Commodities: full size during London/NY commodity hours 08:00–17:00 UTC (off-hours 0.55x).
+    FX: full size during London+NY overlap 07:00–16:00 UTC (off-hours 0.70x).
+    Crypto: always 1.0 (24/7 market, no session penalty).
+    Additionally applies a 0.85x diurnal penalty during very low-vol drift windows (vol < 0.75x baseline).
+    """
+    sym = (symbol or "").upper()
+    h = datetime.now(timezone.utc).hour
+
+    if sym in _CRYPTO_SESSION_ASSETS:
+        base_mult = 1.0
+    elif sym in _FX_SESSION_ASSETS:
+        base_mult = 1.0 if 7 <= h <= 16 else 0.70
+    elif sym in _COMMODITY_SESSION_ASSETS:
+        base_mult = 1.0 if 8 <= h <= 17 else 0.55
+    else:
+        # Default: treat as equity
+        base_mult = 1.0 if 13 <= h <= 20 else (0.65 if 9 <= h < 13 else 0.45)
+
+    # Diurnal vol penalty: if seasonal vol curve indicates very quiet window, reduce further
+    try:
+        from intraday_seasonality_profile import IntradaySeasonalityProfileEngine
+        _diurnal = IntradaySeasonalityProfileEngine().evaluate_current_seasonality(utc_hour=h)
+        if _diurnal.diurnal_volatility_multiplier < 0.75:
+            base_mult = round(base_mult * 0.85, 4)
+    except Exception:
+        pass  # Never block on diurnal engine failures
+
+    return round(base_mult, 4)
+
 
 class LighterNewsRiskGate:
     def __init__(self, live: bool = False) -> None:

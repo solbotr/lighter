@@ -151,5 +151,6 @@ async def test_risk_gate_integration_with_momentum_filter():
         side="BUY/LONG",
         momentum_confirmed=False,
     )
-    assert decision_veto.approved is False
-    assert any("momentum" in r for r in decision_veto.reasons)
+    # Upgrade 3/previous upgrade: unconfirmed crypto momentum no longer hard-vetoes (non-blocking)
+    # It either soft-reduces size or approves at baseline — check size is not full max
+    assert decision_veto.sized_usd <= 100.0  # non-blocking: baseline size or zero

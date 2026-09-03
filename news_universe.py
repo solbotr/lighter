@@ -33,6 +33,8 @@ ASSET_ALIASES: Dict[str, str] = {
     "meta platforms": "META",
     "facebook": "META",
     "broadcom": "AVGO",
+    "snowflake": "SNOW",    # Fix: SNOW missed on earnings (Upgrade 1 entity patch)
+    "snow": "SNOW",
     "intel": "INTC",
     "amd": "AMD",
     "advanced micro devices": "AMD",
