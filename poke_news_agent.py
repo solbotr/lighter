@@ -27,11 +27,8 @@ from news_sources import RawNewsRecord, canonical_url, stable_hash
 
 logger = logging.getLogger("PokeNewsAgent")
 
-DEFAULT_POKE_API_URL = os.getenv("POKE_API_URL", "https://poke.com/api/v1/inbound/api-message")
-DEFAULT_POKE_API_KEY = os.getenv(
-    "POKE_API_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYTI1NWE3MS1hM2Q1LTQ3YWMtOTFmNi05YjkzZjMwN2JlYjAiLCJqdGkiOiJkYjRkNTliMS00ZWE4LTQ0MjQtYTViYi1mMWFiMTZhODNjNWIiLCJpYXQiOjE3ODczNzk3MDIsImV4cCI6MjEwMjczOTcwMn0.BKasiODc-jsUjSWpC9iiJLtkGu856dqLqj_gklrHbic"
-)
+DEFAULT_POKE_API_URL = os.getenv("POKE_API_URL", os.getenv("POKE_WEBHOOK_URL", "https://poke.com/api/v1/inbound/api-message"))
+DEFAULT_POKE_API_KEY = os.getenv("POKE_API_KEY", "")
 
 
 @dataclass

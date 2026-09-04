@@ -22,11 +22,8 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger("PokeAI")
 
-POKE_API_URL = os.getenv("POKE_API_URL", "https://poke.com/api/v1/inbound/api-message")
-POKE_API_KEY = os.getenv(
-    "POKE_API_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYTI1NWE3MS1hM2Q1LTQ3YWMtOTFmNi05YjkzZjMwN2JlYjAiLCJqdGkiOiJkYjRkNTliMS00ZWE4LTQ0MjQtYTViYi1mMWFiMTZhODNjNWIiLCJpYXQiOjE3ODczNzk3MDIsImV4cCI6MjEwMjczOTcwMn0.BKasiODc-jsUjSWpC9iiJLtkGu856dqLqj_gklrHbic"
-)
+POKE_API_URL = os.getenv("POKE_API_URL", os.getenv("POKE_WEBHOOK_URL", "https://poke.com/api/v1/inbound/api-message"))
+POKE_API_KEY = os.getenv("POKE_API_KEY", "")
 
 # Bounded queue for non-blocking execution
 _POKE_QUEUE: queue.Queue = queue.Queue(maxsize=500)
@@ -119,8 +116,13 @@ def poke_send(message: str) -> bool:
     """
     Sub-0.01ms non-blocking notification dispatch to Poke AI.
     Never blocks trading threads or asyncio event loops.
+    Fail-closed if POKE_API_KEY is unset.
     """
     if not message:
+        return False
+    key = (os.getenv("POKE_API_KEY", "") or POKE_API_KEY or "").strip()
+    if not key:
+        logger.warning("POKE_API_KEY missing; refusing Poke send")
         return False
     _ensure_worker_started()
     try:
