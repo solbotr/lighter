@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional, Tuple
 
@@ -89,7 +90,8 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
         return False, "headline matched hard veto (unrelated sector/noise)"
     event_type = event.event_type
     if event_type not in TRADEABLE_TYPES:
-        if event_type == "unknown" and event.direction in {"BULLISH", "BEARISH"} and event.confidence >= 0.75 and FRESH_CATALYST.search(event.headline or ""):
+        min_conf = float(os.getenv("NEWS_MIN_CONFIDENCE", "0.70"))
+        if event_type == "unknown" and event.direction in {"BULLISH", "BEARISH"} and event.confidence >= min_conf and FRESH_CATALYST.search(event.headline or ""):
             event_type = "momentum"
         else:
             return False, f"event type {event.event_type} is not auto-tradeable"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import time
 from dataclasses import asdict, dataclass, field
@@ -73,24 +74,6 @@ class ExitRetry:
     attempts: int = 0
     next_attempt_at: float = field(default_factory=time.time)
     last_error: str = ""
-
-
-class PaperFillSimulator:
-    def __init__(self, fee_bps: float = 4.0, slippage_bps: float = 8.0, partial_fill_pct: float = 1.0) -> None:
-        self.fee_bps = fee_bps
-        self.slippage_bps = slippage_bps
-        self.partial_fill_pct = min(1.0, max(0.1, partial_fill_pct))
-
-    def fill(self, intent: TradeIntent, snapshot: MarketSnapshot) -> TradeIntent:
-        slip = self.slippage_bps / 10_000.0
-        price = snapshot.price * (1.0 + slip if intent.side == "BUY/LONG" else 1.0 - slip)
-        filled_usd = intent.requested_usd * self.partial_fill_pct
-        size = filled_usd / max(price, 1e-9)
-        intent.fill_price = round(price, 8)
-        intent.fill_size = round(size, 8)
-        intent.fee_usd = round(filled_usd * (self.fee_bps / 10_000.0), 8)
-        intent.status = "filled" if self.partial_fill_pct >= 0.999 else "partial"
-        return intent
 
 
 class TradeIntentQueue:
@@ -165,6 +148,10 @@ class TradeIntentQueue:
 
     def _persist(self, intent: TradeIntent) -> None:
         if not self.db_path:
+            return
+        # SPEED: keep pre-fill intents memory-only — SQLite after the order is on the wire
+        defer = os.getenv("SPEED_DEFER_INTENT_PERSIST", "1").strip().lower() in {"1", "true", "yes", "on"}
+        if defer and intent.status in {"intent", "reserved"}:
             return
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(

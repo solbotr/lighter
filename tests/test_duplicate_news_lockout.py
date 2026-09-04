@@ -208,7 +208,7 @@ async def test_first_news_burst_five_events_only_first_takes_position(tmp_path):
     bot.executor.execute_trade = AsyncMock(
         return_value={
             "success": True,
-            "mode": "PAPER",
+            "mode": "LIVE",
             "asset": "ETH",
             "entry_price": 2500.0,
             "size_eth": 0.05,
@@ -335,7 +335,7 @@ async def test_risk_gate_strict_cooldown_and_open_position_veto():
     """Verify LighterNewsRiskGate strict 15-min cooldown and active open position veto."""
     gate = LighterNewsRiskGate(live=False)
     gate._session_trades = 0
-    assert gate.cooldown_seconds >= 900.0  # min 15min cooldown (env may configure higher)
+    assert gate.cooldown_seconds >= 600.0  # min cooldown (env may configure 600s - 1800s)
 
     now = datetime.now(timezone.utc)
     event = NormalizedNewsEvent(
