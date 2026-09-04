@@ -329,20 +329,20 @@ def calculate_dynamic_trailing_cushion(
 
 
 def calculate_dynamic_be_threshold(
-    base_be_threshold: float = 1.5,
+    base_be_threshold: float = 0.75,
     atr_multiplier: float = 1.0,
 ) -> float:
     """
     Dynamic Breakeven Acceleration:
-    - When volatility normalizes quickly (ATR multiplier <= 1.1x), accelerate BE threshold
-      from +1.5% down to +0.75%..+1.0% to secure risk-free status faster.
+    - Default threshold is tightened to +0.75% profit (secures risk-free status immediately).
+    - When volatility normalizes quickly (ATR multiplier <= 1.1x), maintain tight BE (+0.75%..+0.85%).
     """
     if atr_multiplier <= 1.1:
         # Normalized volatility: tighten BE activation threshold
         if atr_multiplier <= 0.8:
             return 0.75
-        # Linear between 0.8x and 1.1x -> [0.75%, 1.0%]
-        return round(0.75 + (atr_multiplier - 0.8) / 0.3 * 0.25, 4)
+        # Linear between 0.8x and 1.1x -> [0.75%, 0.85%]
+        return round(0.75 + (atr_multiplier - 0.8) / 0.3 * 0.10, 4)
 
     return round(base_be_threshold, 4)
 
@@ -682,8 +682,8 @@ class VolatilityAdaptiveExitEngine:
         if not state.is_normalized:
             return False
 
-        # Threshold under normalized volatility (+0.75% to +1.0% profit)
-        threshold = calculate_dynamic_be_threshold(base_be_threshold=1.5, atr_multiplier=state.atr_multiplier)
+        # Threshold under normalized volatility (+0.75% profit)
+        threshold = calculate_dynamic_be_threshold(base_be_threshold=0.75, atr_multiplier=state.atr_multiplier)
         return pnl_pct >= threshold
 
 

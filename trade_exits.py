@@ -36,16 +36,18 @@ def policy_for(
     max_hold_sec = hold_days * 86400.0
 
     # 1. Base Asset Category Default Policy
+    # Inverted Asymmetric SL/TP Ratio: Tighten baseline SL from -1.50% to -0.85% (equities -0.75%)
+    env_sl = float(os.getenv("NEWS_STOP_LOSS_PCT", "0")) if os.getenv("NEWS_STOP_LOSS_PCT") else None
     if sym in FX:
-        base = ExitPolicy(0.40, 0.30, 0.25, 0.15, max_hold_sec, 25)
+        base = ExitPolicy(0.40, env_sl or 0.30, 0.25, 0.15, max_hold_sec, 25)
     elif sym in INDEX:
-        base = ExitPolicy(1.20, 0.80, 0.80, 0.50, max_hold_sec, 40)
+        base = ExitPolicy(1.20, env_sl or 0.75, 0.80, 0.50, max_hold_sec, 40)
     elif sym in COMMODITY:
-        base = ExitPolicy(2.00, 1.20, 1.20, 0.80, max_hold_sec, 50)
+        base = ExitPolicy(2.00, env_sl or 0.95, 1.20, 0.80, max_hold_sec, 50)
     elif sym in CRYPTO:
-        base = ExitPolicy(2.00, 1.50, 2.00, 1.00, max_hold_sec, 80)
+        base = ExitPolicy(2.00, env_sl or 0.85, 2.00, 1.00, max_hold_sec, 80)
     else:
-        base = ExitPolicy(1.50, 1.00, 1.00, 0.60, max_hold_sec, 60)
+        base = ExitPolicy(1.50, env_sl or 0.75, 1.00, 0.60, max_hold_sec, 60)
 
     # 2. News Catalyst Classification & Tailored TP/SL Multipliers
     head = (news_headline or "").lower()
@@ -151,8 +153,8 @@ def already_through_exit(side: str, mark: float, tp_price: float, sl_price: floa
 PARTIAL_FRACS = (0.50, 0.25, 0.25)
 PARTIAL_MULTS = (1.0, 2.0, 3.0)
 SCALE_OUT_TARGET_PCTS = (2.0, 4.0)
-BE_OFFSET_PCT = 0.1
-RUNNER_TRAIL_GAP_PCT = 1.0
+BE_OFFSET_PCT = float(os.getenv("NEWS_BE_OFFSET_PCT", "0.1"))
+RUNNER_TRAIL_GAP_PCT = float(os.getenv("NEWS_RUNNER_TRAIL_GAP_PCT", "1.0"))
 
 
 def scale_tp_price(

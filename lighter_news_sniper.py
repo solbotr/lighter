@@ -17,6 +17,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -35,7 +36,7 @@ from dotenv import load_dotenv
 from news_pipeline import NewsPipeline, NormalizedNewsEvent
 from news_sources import NewsSourceRegistry, NewsSourceScheduler
 from news_markets import MarketRegistry, TickerCache
-from news_lifecycle import PaperFillSimulator, PositionBook, PositionClock, TradeIntentQueue
+from news_lifecycle import PositionBook, PositionClock, TradeIntentQueue
 from news_observability import AuditLog, NewsMetrics
 from lighter_news_risk import LighterNewsRiskGate, MarketSnapshot, live_execution_allowed
 from treenews_ws import TreeNewsWebSocketClient
@@ -282,13 +283,13 @@ class MaxSizeExecutionEngine:
 
     def __init__(
         self,
-        is_live: bool = False,
+        is_live: bool = True,
         max_margin_utilization_pct: float = 85.0,
         slippage_tolerance_pct: float = 0.5,
         default_tp_pct: float = 2.5,
         default_sl_pct: float = 1.5,
     ):
-        self.is_live = is_live
+        self.is_live = bool(is_live)
         self.max_margin_utilization_pct = max_margin_utilization_pct
         self.slippage_tolerance_pct = slippage_tolerance_pct
         self.default_tp_pct = default_tp_pct
@@ -312,7 +313,39 @@ class MaxSizeExecutionEngine:
         self._cached_positions: List[Dict[str, Any]] = []
         self._last_catalog_fetch_ts: float = 0.0
         self._last_positions_fetch_ts: float = 0.0
+        self._last_cached_collateral: float = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))
+        self._collateral_cache_ts: float = 0.0
+        self._spread_cache: Dict[int, Tuple[float, float]] = {}
         self.clock = PositionClock(os.getenv("NEWS_DB_PATH", str(Path(__file__).with_name("lighter_news.db"))))
+
+    @staticmethod
+    def _speed_mode() -> bool:
+        return os.getenv("SPEED_MODE", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _collateral_cache_ttl_sec(self) -> float:
+        # Hot-path: reuse collateral aggressively (override via NEWS_COLLATERAL_CACHE_MS)
+        ms = float(os.getenv("NEWS_COLLATERAL_CACHE_MS", "5000" if self._speed_mode() else "500"))
+        return max(0.0, ms / 1000.0)
+
+    def _fill_confirm_timeout_sec(self) -> float:
+        default = "1.2" if self._speed_mode() else "8.0"
+        return float(os.getenv("NEWS_FILL_CONFIRM_TIMEOUT", default))
+
+    def _fill_poll_interval_sec(self) -> float:
+        return float(os.getenv("NEWS_FILL_POLL_MS", "80" if self._speed_mode() else "400")) / 1000.0
+
+    def _async_fill_confirm(self) -> bool:
+        """Return after order ACK; confirm fill + protective exits in background."""
+        default = "1" if self._speed_mode() else "0"
+        return os.getenv("SPEED_ASYNC_FILL_CONFIRM", default).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _skip_vwap_guard(self) -> bool:
+        default = "1" if self._speed_mode() else "0"
+        return os.getenv("SPEED_SKIP_VWAP", default).strip().lower() in {"1", "true", "yes", "on"}
+
+    def cached_collateral_usd(self) -> Optional[float]:
+        val = float(getattr(self, "_last_cached_collateral", 0.0) or 0.0)
+        return val if val > 0 else None
 
     async def _ensure_signer(self):
         if self.is_live and self.signer_client is None and self.api_private_key and self.account_index > 0:
@@ -327,18 +360,31 @@ class MaxSizeExecutionEngine:
             except Exception as e:
                 logger.error("❌ [EXEC] SignerClient init error: %s: %s", type(e).__name__, e or "no message")
 
+    async def prewarm(self) -> None:
+        """Warm signer + HTTP + collateral before the first catalyst (cuts cold-start RTT)."""
+        await self._ensure_signer()
+        await self._http_session()
+        await self.fetch_available_collateral_usd(force=True)
+        logger.info("⚡ [SPEED] Executor prewarmed (signer=%s collateral_cache=$%.2f)",
+                    bool(self.signer_client), self._last_cached_collateral)
+
     async def _http_session(self) -> aiohttp.ClientSession:
         if self._http is None or self._http.closed:
             connector = aiohttp.TCPConnector(
                 limit=100,
-                limit_per_host=30,
+                limit_per_host=40,
                 enable_cleanup_closed=True,
                 keepalive_timeout=75.0,
                 ttl_dns_cache=300,
+                happy_eyeballs_delay=0.05,
             )
+            # Aggressive timeouts on the money path
+            total = 3.0 if self._speed_mode() else 6.0
+            connect = 1.0 if self._speed_mode() else 2.0
+            sock_read = 2.0 if self._speed_mode() else 4.0
             self._http = aiohttp.ClientSession(
                 connector=connector,
-                timeout=aiohttp.ClientTimeout(total=6.0, connect=2.0, sock_read=4.0),
+                timeout=aiohttp.ClientTimeout(total=total, connect=connect, sock_read=sock_read),
             )
         return self._http
 
@@ -362,33 +408,43 @@ class MaxSizeExecutionEngine:
                 continue
         return None
 
-    async def fetch_available_collateral_usd(self) -> Optional[float]:
-        """Fetches the configured sub-account collateral with resilient caching."""
-        if not self.is_live:
-            return float(os.getenv("NEWS_PAPER_COLLATERAL_USD", "100"))
+    async def fetch_available_collateral_usd(self, force: bool = False) -> Optional[float]:
+        """Fetches the configured sub-account collateral with short TTL cache (hot-path)."""
         wallet = os.getenv("WALLET_ADDRESS", "").strip()
         if not wallet:
             logger.error("Live collateral query failed: WALLET_ADDRESS is not set")
             return None
 
+        ttl = self._collateral_cache_ttl_sec()
+        age = time.time() - float(getattr(self, "_collateral_cache_ts", 0.0) or 0.0)
+        if (
+            not force
+            and ttl > 0
+            and age < ttl
+            and float(getattr(self, "_last_cached_collateral", 0.0) or 0.0) > 0
+        ):
+            return float(self._last_cached_collateral)
+
         if not hasattr(self, "_last_cached_collateral"):
             self._last_cached_collateral = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))
         try:
             session = await self._http_session()
+            http_to = aiohttp.ClientTimeout(total=2.0 if self._speed_mode() else 4.0)
             # 1. Primary: Direct query by subaccount index (fastest & most reliable)
             url_idx = f"{self.base_url}/api/v1/account?by=index&value={self.account_index}"
-            async with session.get(url_idx, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
+            async with session.get(url_idx, timeout=http_to) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     collat = self._parse_collateral(data)
                     if collat is not None and collat > 0:
                         self._last_cached_collateral = collat
+                        self._collateral_cache_ts = time.time()
                         return collat
 
             # 2. Secondary: Query by L1 Wallet address if index returned empty
             if wallet:
                 url_wallet = f"{self.base_url}/api/v1/accountsByL1Address?l1_address={wallet}"
-                async with session.get(url_wallet, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
+                async with session.get(url_wallet, timeout=http_to) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         sub_accs = data.get("sub_accounts") or data.get("accounts") or data.get("data") or []
@@ -399,6 +455,7 @@ class MaxSizeExecutionEngine:
                             collat = self._parse_collateral(acc)
                             if collat is not None and collat > 0:
                                 self._last_cached_collateral = collat
+                                self._collateral_cache_ts = time.time()
                                 return collat
 
             # Return cached collateral if endpoint temporarily timed out
@@ -406,8 +463,6 @@ class MaxSizeExecutionEngine:
         except Exception as e:
             logger.debug("Live collateral query using cached value ($%.2f): %s", self._last_cached_collateral, e)
             return self._last_cached_collateral
-            logger.warning("Paper collateral fallback after API error: %s", detail)
-            return float(os.getenv("NEWS_PAPER_COLLATERAL_USD", "100"))
 
     def _book_to_snapshot(self, asset: str, book: Dict[str, Any]) -> Optional[MarketSnapshot]:
         try:
@@ -750,7 +805,7 @@ class MaxSizeExecutionEngine:
                 last_err = f"{type(e).__name__}: {e or 'no message'}"
                 if "invalid nonce" in last_err.lower() and attempt == 0:
                     await self._refresh_nonce()
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05 if self._speed_mode() else 0.2)
                     continue
                 return None, last_err
             resp, err = unpack_signer_result(result)
@@ -758,7 +813,7 @@ class MaxSizeExecutionEngine:
                 last_err = str(err)
                 if "invalid nonce" in last_err.lower() and attempt == 0:
                     await self._refresh_nonce()
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.05 if self._speed_mode() else 0.2)
                     continue
                 return None, last_err
             return signer_tx_id(resp), None
@@ -909,22 +964,35 @@ class MaxSizeExecutionEngine:
                 return item
         return None
 
-    async def wait_for_exchange_position(self, asset: str, market_index: int, timeout: float = 20.0) -> Optional[Dict[str, Any]]:
-        deadline = time.time() + timeout
+    async def wait_for_exchange_position(
+        self,
+        asset: str,
+        market_index: int,
+        timeout: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if timeout is None:
+            timeout = self._fill_confirm_timeout_sec()
+        poll = self._fill_poll_interval_sec()
+        deadline = time.time() + float(timeout)
         while time.time() < deadline:
             found = self.match_exchange_position(await self.fetch_account_positions(), asset, market_index)
             if found:
                 return found
-            await asyncio.sleep(0.8)
+            await asyncio.sleep(poll)
         return None
 
     async def fetch_spread_bps(self, market_index: int) -> float:
         try:
+            now = time.time()
+            cached = self._spread_cache.get(int(market_index))
+            ttl = 0.35 if self._speed_mode() else 0.15
+            if cached and (now - cached[0]) < ttl:
+                return float(cached[1])
             session = await self._http_session()
             url = f"{self.base_url}/api/v1/orderBookOrders?market_id={market_index}&limit=1"
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    return 0.0
+                    return float(cached[1]) if cached else 0.0
                 data = await resp.json(content_type=None)
             bids = data.get("bids") or []
             asks = data.get("asks") or []
@@ -935,7 +1003,9 @@ class MaxSizeExecutionEngine:
             mid = (bid + ask) / 2.0
             if mid <= 0:
                 return 0.0
-            return abs(ask - bid) / mid * 10_000.0
+            spread = abs(ask - bid) / mid * 10_000.0
+            self._spread_cache[int(market_index)] = (now, spread)
+            return spread
         except Exception:
             return 0.0
 
@@ -1068,8 +1138,8 @@ class MaxSizeExecutionEngine:
         status = {"tp": False, "sl": False, "detail": "local watchdog only", "on_book": False}
         if self.is_live and self.signer_client is None:
             await self._ensure_signer()
-        if not self.is_live or not self.signer_client:
-            status["detail"] = "local watchdog TP/SL armed"
+        if not self.signer_client:
+            status["detail"] = "local watchdog TP/SL armed (signer unavailable)"
             return status
         live = self.match_exchange_position(await self.fetch_account_positions(), pos.asset, pos.market_index)
         if live:
@@ -1177,10 +1247,74 @@ class MaxSizeExecutionEngine:
             status["detail"] = "TP/SL FAILED — watchdog only"
         return status
 
+    async def arm_protective_exits(
+        self,
+        pos: ActivePosition,
+        *,
+        retries: Optional[int] = None,
+        require_both: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Always arm local TP/SL prices, then retry exchange attach until both are on book
+        (or retries exhausted). Local watchdog remains armed either way.
+        """
+        self.ensure_exit_prices(pos)
+        if pos.tp_price <= 0 or pos.sl_price <= 0:
+            logger.error("REFUSING unprotected %s — could not compute TP/SL prices", pos.asset)
+            return {"tp": False, "sl": False, "detail": "missing local TP/SL prices", "on_book": False}
+
+        max_tries = int(retries if retries is not None else os.getenv("PROTECT_ATTACH_RETRIES", "5"))
+        max_tries = max(1, max_tries)
+        last: Dict[str, Any] = {"tp": False, "sl": False, "detail": "not attempted", "on_book": False}
+        for attempt in range(max_tries):
+            pos.last_protect_attempt = time.time()
+            last = await self.place_protective_exits(pos, pos.tp_price, pos.sl_price)
+            ok = bool(last.get("tp") and last.get("sl")) if require_both else bool(last.get("tp") or last.get("sl"))
+            if ok:
+                logger.info(
+                    "🛡️ [TP/SL ARMED] %s attempt=%s tp=%s sl=%s @ tp=$%.4f sl=$%.4f",
+                    pos.asset, attempt + 1, last.get("tp"), last.get("sl"), pos.tp_price, pos.sl_price,
+                )
+                return last
+            logger.warning(
+                "TP/SL incomplete for %s (attempt %s/%s): %s — retrying",
+                pos.asset, attempt + 1, max_tries, last.get("detail"),
+            )
+            await asyncio.sleep(0.35 + 0.2 * attempt)
+        logger.error(
+            "🚨 [UNPROTECTED] %s still missing exchange TP/SL after %s tries — LOCAL WATCHDOG ACTIVE tp=$%.4f sl=$%.4f",
+            pos.asset, max_tries, pos.tp_price, pos.sl_price,
+        )
+        last["detail"] = f"retries exhausted; local watchdog armed tp={pos.tp_price} sl={pos.sl_price}"
+        return last
+
+    async def enforce_exits_on_all_positions(self) -> Dict[str, int]:
+        """Every tick: ensure every live position has TP+SL prices and exchange attaches."""
+        summary = {"checked": 0, "armed": 0, "retried": 0, "missing_local": 0}
+        now = time.time()
+        min_gap = float(os.getenv("PROTECT_RETRY_SECONDS", "3.0"))
+        for pos in list(self.active_positions.values()):
+            if not pos.is_active:
+                continue
+            summary["checked"] += 1
+            self.ensure_exit_prices(pos)
+            if pos.tp_price <= 0 or pos.sl_price <= 0:
+                summary["missing_local"] += 1
+                continue
+            if pos.exchange_tp and pos.exchange_sl:
+                continue
+            if now - float(pos.last_protect_attempt or 0.0) < min_gap:
+                continue
+            summary["retried"] += 1
+            result = await self.arm_protective_exits(pos, retries=2, require_both=True)
+            if result.get("tp") and result.get("sl"):
+                summary["armed"] += 1
+        return summary
+
     async def amend_trailing_sl(self, pos: ActivePosition) -> bool:
         if self.is_live and self.signer_client is None:
             await self._ensure_signer()
-        if not self.is_live or not self.signer_client or not pos.sl_price:
+        if not self.signer_client or not pos.sl_price:
             pos.pending_sl_amend = False
             return False
         now = time.time()
@@ -1251,16 +1385,56 @@ class MaxSizeExecutionEngine:
         notional_usd: Optional[float] = None,
         conviction: Optional[float] = None,
         margin_utilization_pct: Optional[float] = None,
+        strategy_approved: bool = False,
+        reservation_id: str = "",
+        collateral_usd: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Executes a sized trade and registers Take-Profit watchdog. Live is fail-closed."""
+        """Executes a sized trade and registers Take-Profit watchdog. Live is fail-closed.
+
+        New opens must pass strategy approval (`strategy_approved=True`) unless
+        REQUIRE_STRATEGY_GATE=0 (emergency only).
+
+        SPEED_MODE: strategy-approved opens skip spread/VWAP HTTP and return on order ACK
+        (fill confirm + protective exits run in background).
+        """
         from trade_exits import policy_for, tp_sl_prices
+
+        require_gate = os.getenv("REQUIRE_STRATEGY_GATE", "1").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        if require_gate and not strategy_approved:
+            return {
+                "success": False,
+                "error": "strategy gate required — open via execute_strategy_entry / news risk approve",
+            }
 
         existing = self.existing_position(asset, market_index)
         if existing:
             return {"success": False, "error": f"{asset} already has an open {existing.side} position"}
-        collateral_usd = await self.fetch_available_collateral_usd()
+
+        # Opposing Whale Sweep Veto: do not enter against aggressive whale sweeps within 15s
+        if hasattr(self, "_recent_whale_signals"):
+            whale_info = self._recent_whale_signals.get(asset.upper())
+            if whale_info:
+                w_side, w_notional, w_ts = whale_info
+                if (time.time() - w_ts) < 15.0:
+                    trade_side = "SELL" if is_ask else "BUY"
+                    opposing = (w_side in ["BUY", "LONG"] and trade_side == "SELL") or (w_side in ["SELL", "SHORT"] and trade_side == "BUY")
+                    if opposing:
+                        logger.warning("🐋 [WHALE VETO] Rejecting %s %s: opposing whale sweep ($%s) occurred %.1fs ago",
+                                       trade_side, asset, f"{w_notional:,.0f}", time.time() - w_ts)
+                        return {"success": False, "error": f"opposing whale sweep ({w_side} ${w_notional:,.0f}) within 15s"}
+
+        # Prefer caller/cache collateral — never block fire path on fresh HTTP when strategy-sized
+        if self.is_live and not os.getenv("WALLET_ADDRESS", "").strip():
+            return {"success": False, "error": "live collateral query failed: WALLET_ADDRESS is not set"}
+        if collateral_usd is None or float(collateral_usd) <= 0:
+            collateral_usd = self.cached_collateral_usd()
+        if collateral_usd is None or float(collateral_usd) <= 0:
+            collateral_usd = await self.fetch_available_collateral_usd()
         if collateral_usd is None:
             return {"success": False, "error": "live collateral query failed"}
+
         if notional_usd is not None:
             capped_notional = min(float(notional_usd), float(os.getenv("NEWS_MAX_TRADE_USD", "75.0")))
             order_size = capped_notional / max(1e-6, current_market_price)
@@ -1289,43 +1463,69 @@ class MaxSizeExecutionEngine:
             market_index = int(meta.get("market_index") or market_index)
         side_str = "SELL/SHORT" if is_ask else "BUY/LONG"
         policy = policy_for(asset, override_tp=custom_tp_pct, override_sl=self.default_sl_pct if custom_tp_pct else None)
-        spread = await self.fetch_spread_bps(market_index) if self.is_live else 0.0
-        if spread > policy.max_spread_bps:
-            return {"success": False, "error": f"spread {spread:.1f} bps above {policy.max_spread_bps:.0f} bps exit cap"}
 
-        # Microstructure Depth & VWAP Sizing Guard
-        book = self.depth_engine.get_or_create_book(market_index, symbol=asset)
-        if self.is_live and (not book.sorted_bid_prices or not book.sorted_ask_prices):
-            book = await self.fetch_orderbook_depth(market_index)
+        fast = self._speed_mode() and strategy_approved
+        vwap_price = current_market_price
+        expected_slippage_bps = 0.0
 
-        max_slip_bps = getattr(policy, "max_slippage_bps", 50.0) if hasattr(policy, "max_slippage_bps") else 50.0
-        requested_notional = float(notional_usd) if notional_usd is not None else (order_size * current_market_price)
-
-        if book.sorted_ask_prices or book.sorted_bid_prices:
-            adj_notional = liquidity_adjusted_size(
-                orderbook=book,
-                side="SELL" if is_ask else "BUY",
-                requested_usd=requested_notional,
-                max_slippage_bps=max_slip_bps,
-                fallback_price=current_market_price,
-            )
-            vwap_price, filled_usd, expected_slippage_bps, depth_exhausted = calculate_vwap(
-                orderbook=book,
-                side="SELL" if is_ask else "BUY",
-                target_notional_usd=adj_notional,
-                fallback_price=current_market_price,
-            )
-            if adj_notional < requested_notional:
-                order_size = adj_notional / max(1e-6, current_market_price)
-                order_size = round(order_size, size_decimals) if size_decimals > 0 else float(int(order_size))
-                logger.info(
-                    f"⚠️ [VWAP SIZING] Adjusted size: ${requested_notional:.2f} -> ${adj_notional:.2f} "
-                    f"(VWAP: ${vwap_price:.2f}, Slip: {expected_slippage_bps:.1f} bps, Cap: {max_slip_bps:.0f} bps)"
+        if not (fast and self._skip_vwap_guard()):
+            book = self.depth_engine.get_or_create_book(market_index, symbol=asset)
+            need_depth = not (book.sorted_bid_prices or book.sorted_ask_prices)
+            skip_spread = self._speed_mode() and os.getenv("SPEED_SKIP_SPREAD_CHECK", "1").strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            if skip_spread and not need_depth:
+                spread = float(getattr(book, "spread_bps", 0.0) or 0.0)
+            elif need_depth and not skip_spread:
+                book, spread = await asyncio.gather(
+                    self.fetch_orderbook_depth(market_index),
+                    self.fetch_spread_bps(market_index),
                 )
-        else:
-            vwap_price = current_market_price
-            expected_slippage_bps = 0.0
-            depth_exhausted = False
+            elif need_depth:
+                book = await self.fetch_orderbook_depth(market_index)
+                spread = float(getattr(book, "spread_bps", 0.0) or 0.0)
+            else:
+                spread = await self.fetch_spread_bps(market_index)
+            if spread > policy.max_spread_bps:
+                return {"success": False, "error": f"spread {spread:.1f} bps above {policy.max_spread_bps:.0f} bps exit cap"}
+
+            if not book.sorted_bid_prices or not book.sorted_ask_prices:
+                book = await self.fetch_orderbook_depth(market_index)
+
+            max_slip_bps = getattr(policy, "max_slippage_bps", 50.0) if hasattr(policy, "max_slippage_bps") else 50.0
+            requested_notional = float(notional_usd) if notional_usd is not None else (order_size * current_market_price)
+
+            # Liquidity & Spread-Aware Fill Router:
+            # Dynamically scale order size down by 50% if orderbook spread > 12 bps to prevent adverse fills
+            if spread > 12.0:
+                old_notional = requested_notional
+                requested_notional = requested_notional * 0.50
+                logger.info(
+                    "💧 [SPREAD SIZING] Spread %.1f bps > 12 bps: scaling notional $%.2f -> $%.2f",
+                    spread, old_notional, requested_notional
+                )
+
+            if book.sorted_ask_prices or book.sorted_bid_prices:
+                adj_notional = liquidity_adjusted_size(
+                    orderbook=book,
+                    side="SELL" if is_ask else "BUY",
+                    requested_usd=requested_notional,
+                    max_slippage_bps=max_slip_bps,
+                    fallback_price=current_market_price,
+                )
+                vwap_price, filled_usd, expected_slippage_bps, depth_exhausted = calculate_vwap(
+                    orderbook=book,
+                    side="SELL" if is_ask else "BUY",
+                    target_notional_usd=adj_notional,
+                    fallback_price=current_market_price,
+                )
+                if adj_notional < requested_notional:
+                    order_size = adj_notional / max(1e-6, current_market_price)
+                    order_size = round(order_size, size_decimals) if size_decimals > 0 else float(int(order_size))
+                    logger.info(
+                        f"⚠️ [VWAP SIZING] Adjusted size: ${requested_notional:.2f} -> ${adj_notional:.2f} "
+                        f"(VWAP: ${vwap_price:.2f}, Slip: {expected_slippage_bps:.1f} bps, Cap: {max_slip_bps:.0f} bps)"
+                    )
 
         if order_size <= 0:
             return {"success": False, "error": "liquidity adjusted order size is zero"}
@@ -1339,7 +1539,7 @@ class MaxSizeExecutionEngine:
         )
         logger.info(
             f"🚀 [MAX-SIZE EXECUTION] {side_str} {order_size} {asset} (@ ~${current_market_price:.2f} | VWAP: ${vwap_price:.2f}) | "
-            f"Margin: {effective_margin:.1f}% (${collateral_usd * (effective_margin / 100.0):.2f}) | Reason: {reason}"
+            f"Margin: {effective_margin:.1f}% (${float(collateral_usd) * (effective_margin / 100.0):.2f}) | Reason: {reason}"
         )
 
         import uuid
@@ -1363,39 +1563,79 @@ class MaxSizeExecutionEngine:
             trail_gap_pct=policy.trail_gap_pct,
         )
 
-        if not self.is_live:
-            self.ensure_exit_prices(position)
-            position.entry_time = self.clock.remember(asset, position.entry_time)
-            self.active_positions[pos_id] = position
-            from trade_exits import tp_ladder_prices
-            return {
-                "success": True,
-                "mode": "PAPER_SIMULATION",
-                "asset": asset,
-                "position_id": pos_id,
-                "side": side_str,
-                "size_eth": order_size,
-                "entry_price": current_market_price,
-                "vwap_price": vwap_price,
-                "expected_slippage_bps": expected_slippage_bps,
-                "depth_exhausted": depth_exhausted,
-                "notional_usd": order_size * current_market_price,
-                "tp_target_price": position.tp_price,
-                "sl_price": position.sl_price,
-                "tp_pct": policy.tp_pct,
-                "sl_pct": policy.sl_pct,
-                "tp_ladder": list(tp_ladder_prices(side_str, current_market_price, policy)),
-                "max_hold_seconds": policy.max_hold_seconds,
-                "protect": "paper local TP1-4 scale-out",
-                "reason": reason,
-            }
+        if not self.signer_client:
+            await self._ensure_signer()
+        if not self.signer_client:
+            return {"success": False, "error": "live signer unavailable — cannot place orders"}
 
         tx_hash, err = await self._submit_live_order(asset, market_index, order_size, exec_price, is_ask)
         if err:
             logger.error("❌ [EXEC] Order rejected: %s", err)
             return {"success": False, "error": str(err)}
 
-        filled = await self.wait_for_exchange_position(asset, market_index, timeout=20.0)
+        self.ensure_exit_prices(position)
+        from trade_exits import tp_ladder_prices
+
+        async def _confirm_and_protect() -> None:
+            # Always keep local TP/SL armed immediately (watchdog can exit even before exchange attach)
+            self.ensure_exit_prices(position)
+            filled = await self.wait_for_exchange_position(asset, market_index)
+            if filled:
+                filled_size = float(filled.get("size") or 0.0)
+                if filled_size <= 0:
+                    filled_size = order_size
+                position.size_eth = filled_size
+                position.ordered_size = order_size
+                position.original_size = filled_size
+                position.entry_price = float(filled.get("entry_price") or current_market_price)
+                position.notional_usd = position.size_eth * position.entry_price
+                self.ensure_exit_prices(position)
+            else:
+                logger.error(
+                    "❌ [EXEC] Fill not confirmed for %s — still arming TP/SL on ordered size",
+                    asset,
+                )
+            try:
+                await self.arm_protective_exits(position, retries=int(os.getenv("PROTECT_ATTACH_RETRIES", "5")))
+            except Exception as pe:
+                logger.warning("Protective exits (async) failed for %s: %s", asset, pe)
+
+        if self._async_fill_confirm():
+            position.entry_time = self.clock.remember(asset, position.entry_time)
+            self.active_positions[pos_id] = position
+            # Local TP/SL prices exist before the background task finishes exchange attach
+            self.ensure_exit_prices(position)
+            asyncio.create_task(_confirm_and_protect())
+            logger.info(
+                "⚡ [SPEED ACK] Order submitted tx=%s — TP=$%.4f SL=$%.4f armed locally; exchange attach async for %s",
+                tx_hash, position.tp_price, position.sl_price, asset,
+            )
+            return {
+                "success": True,
+                "mode": "LIVE_MAINNET",
+                "asset": asset,
+                "tx_hash": str(tx_hash),
+                "position_id": pos_id,
+                "side": side_str,
+                "size_eth": position.size_eth,
+                "ordered_size": order_size,
+                "entry_price": position.entry_price,
+                "notional_usd": position.notional_usd,
+                "tp_target_price": position.tp_price,
+                "sl_price": position.sl_price,
+                "tp_pct": policy.tp_pct,
+                "sl_pct": policy.sl_pct,
+                "tp_ladder": list(tp_ladder_prices(side_str, position.entry_price, policy)),
+                "max_hold_seconds": policy.max_hold_seconds,
+                "protect": "async_arming",
+                "exchange_tp": False,
+                "exchange_sl": False,
+                "on_book": None,
+                "reason": reason,
+                "speed_ack": True,
+            }
+
+        filled = await self.wait_for_exchange_position(asset, market_index)
         if not filled:
             logger.error("❌ [EXEC] Order sent but no exchange position for %s", asset)
             return {"success": False, "error": "order submitted but fill not confirmed on exchange", "tx_hash": str(tx_hash)}
@@ -1412,9 +1652,9 @@ class MaxSizeExecutionEngine:
         position.notional_usd = position.size_eth * position.entry_price
         self.ensure_exit_prices(position)
         tp_price, sl_price = position.tp_price, position.sl_price
-        protect = await self.place_protective_exits(position, tp_price, sl_price)
+        protect = await self.arm_protective_exits(position)
         position.entry_time = self.clock.remember(asset, position.entry_time)
-        from trade_exits import already_through_exit, infer_tp_hits, scaled_out_qty, tp_ladder_prices
+        from trade_exits import already_through_exit, infer_tp_hits, scaled_out_qty
         mark = current_market_price
         itm = already_through_exit(side_str, mark, tp_price, sl_price)
         hits = infer_tp_hits(side_str, position.entry_price, mark, policy)
@@ -1438,7 +1678,7 @@ class MaxSizeExecutionEngine:
                 position.tp_hits = hits
                 position.sl_price = position.entry_price
                 self.ensure_exit_prices(position)
-                protect = await self.place_protective_exits(position, position.tp_price, position.sl_price)
+                protect = await self.arm_protective_exits(position, retries=3)
                 protect["detail"] = f"scaled out TP1-{hits}; runner SL@BE"
             protect["itm"] = f"PARTIAL_TP_{hits}"
         logger.info("✅ [LIVE FILL CONFIRMED] TxHash: %s size=%s ordered=%s entry=%s protect=%s", tx_hash, position.size_eth, order_size, position.entry_price, protect.get("detail"))
@@ -1470,7 +1710,7 @@ class MaxSizeExecutionEngine:
         """Cancel leftover TP/SL (and any other) working orders for one market."""
         if self.is_live and self.signer_client is None:
             await self._ensure_signer()
-        if not self.is_live or not self.signer_client or market_index in (None, -1):
+        if not self.signer_client or market_index in (None, -1):
             return 0
         cancelled = 0
         async with self._order_lock:
@@ -1503,7 +1743,7 @@ class MaxSizeExecutionEngine:
     async def cancel_one_order(self, market_index: int, order_index: int) -> bool:
         if self.is_live and self.signer_client is None:
             await self._ensure_signer()
-        if not self.is_live or not self.signer_client or not order_index:
+        if not self.signer_client or not order_index:
             return False
         async with self._order_lock:
             try:
@@ -1536,7 +1776,7 @@ class MaxSizeExecutionEngine:
             await asyncio.sleep(0.35)
         else:
             logger.info("Attaching missing TP/SL on %s (0 working orders)", pos.asset)
-        protect = await self.place_protective_exits(pos, pos.tp_price, pos.sl_price)
+        protect = await self.arm_protective_exits(pos, retries=3)
         protect["pruned"] = open_count if open_count > 2 else 0
         return protect
 
@@ -1545,10 +1785,10 @@ class MaxSizeExecutionEngine:
         from trade_exits import classify_working_order, policy_for, tp_sl_prices
 
         summary = {"cancelled": 0, "orphans": 0, "stale": 0, "attached": 0, "flattened": 0, "pruned": 0}
-        if not self.is_live:
-            return summary
         if self.signer_client is None:
             await self._ensure_signer()
+        if not self.signer_client:
+            return summary
         now = time.time()
         if now - self._last_care_ts < 15:
             return summary
@@ -1641,7 +1881,9 @@ class MaxSizeExecutionEngine:
             if open_n == 2:
                 pos.exchange_tp = pos.exchange_sl = True
                 continue
-            if now - pos.last_protect_attempt < 20:
+            # Unprotected positions: retry every few seconds; fully armed: longer gap
+            gap = 3.0 if not (pos.exchange_tp and pos.exchange_sl) else 20.0
+            if now - pos.last_protect_attempt < gap:
                 continue
             pos.last_protect_attempt = now
             result = await self.sync_position_orders(pos, open_n)
@@ -1658,14 +1900,9 @@ class MaxSizeExecutionEngine:
         if self.is_live and self.signer_client is None:
             await self._ensure_signer()
         partial = qty is not None and qty > 0
-        if not self.is_live or not self.signer_client:
-            if partial:
-                pos.size_eth = max(0.0, pos.size_eth - float(qty))
-                if pos.size_eth <= 0:
-                    self.clock.forget(pos.asset)
-                return True
-            self.clock.forget(pos.asset)
-            return True
+        if not self.signer_client:
+            logger.error("Close aborted %s: live signer unavailable", pos.position_id)
+            return False
         books = await self.fetch_account_positions()
         live = self.match_exchange_position(books, pos.asset, pos.market_index)
         if live is None or float(live.get("size") or 0) <= 0:
@@ -1710,17 +1947,29 @@ class MaxSizeExecutionEngine:
         return False
 
     async def execute_catalyst_snipe(self, signal: CatalystSignal, current_market_price: float) -> Dict[str, Any]:
-        """Wrapper for news catalysts with Dynamic Kelly Sizing."""
+        """News catalyst entry — must go through strategy gate (no raw execute_trade)."""
         is_ask = (signal.sentiment == "BEARISH")
         budget = min(float(os.getenv("NEWS_MAX_TRADE_USD", "100.0")), float(os.getenv("NEWS_REQUESTED_USD", "75.0")))
+        # Prefer bot-level strategy entry when available via bound sniper bot
+        bot = getattr(self, "_strategy_bot", None)
+        if bot is not None and hasattr(bot, "execute_strategy_entry"):
+            return await bot.execute_strategy_entry(
+                asset=signal.target_asset,
+                market_index=signal.market_index,
+                is_ask=is_ask,
+                price=current_market_price,
+                notional_usd=budget,
+                reason=f"NEWS: {signal.headline[:40]}",
+                entry_mode="news",
+            )
         return await self.execute_trade(
             asset=signal.target_asset,
             market_index=signal.market_index,
             is_ask=is_ask,
             current_market_price=current_market_price,
-            reason=f"NEWS: {signal.headline[:40]}",
-            conviction=signal.conviction_score,
             notional_usd=budget,
+            reason=f"NEWS: {signal.headline[:40]}",
+            strategy_approved=True,
         )
 
     async def close_all_positions(self, current_market_price: Any = 2650.0) -> int:
@@ -1744,8 +1993,6 @@ class MaxSizeExecutionEngine:
     async def harvest_exchange_exits(self, prices: Dict[str, float]) -> List[Dict[str, Any]]:
         """If Lighter TP/SL already flattened a position, book the exit and cancel leftover orders."""
         closed: List[Dict[str, Any]] = []
-        if not self.is_live:
-            return closed
         live_positions = await self.fetch_account_positions()
         for pos in list(self.active_positions.values()):
             if not pos.is_active:
@@ -1946,6 +2193,46 @@ class MaxSizeExecutionEngine:
 # NEWS INGESTION STREAMS
 # =============================================================================
 
+def _synthetic_normalized_event(
+    *,
+    event_id: str,
+    source_id: str,
+    publisher: str,
+    headline: str,
+    body: str,
+    entities,
+    event_type: str,
+    direction: str,
+    confidence: float,
+    source_score: float = 0.90,
+    category: str = "wire",
+    cluster_id: str = "",
+    url: str = "",
+    guid: str = "",
+) -> NormalizedNewsEvent:
+    now = datetime.now(timezone.utc)
+    gid = guid or event_id
+    return NormalizedNewsEvent(
+        event_id=event_id,
+        source_id=source_id,
+        publisher=publisher,
+        headline=headline,
+        body=body,
+        url=url,
+        guid=gid,
+        published_at=now,
+        ingested_at=now,
+        source_score=source_score,
+        category=category,
+        content_hash=gid,
+        entities=tuple(entities),
+        event_type=event_type,
+        direction=direction,
+        confidence=confidence,
+        cluster_id=cluster_id or event_id,
+    )
+
+
 class NewsIngestionManager:
     """Polls breaking crypto feeds in background with sub-15ms TreeNews WebSocket streaming."""
 
@@ -2006,17 +2293,18 @@ class NewsIngestionManager:
         side = "BUY" if is_buy else "SELL"
         direction = "BULLISH" if is_buy else "BEARISH"
         
-        arb_event = NormalizedNewsEvent(
+        arb_event = _synthetic_normalized_event(
             event_id=f"arb_{asset}_{int(time.time()*1000)}",
             source_id="cross_dex_arbitrage",
             publisher="HyperliquidLeadArb",
             headline=f"⚡ Hyperliquid Leads zkLighter: {asset} {side} (+{opp.spread_bps:.1f} bps)",
             body=f"Price-lag arbitrage: HL=${opp.hl_price:,.2f} vs zkL=${opp.zklighter_mid:,.2f} (Net Edge: {opp.net_edge_bps:.1f} bps)",
+            entities=(asset,),
             event_type="arbitrage",
             direction=direction,
             confidence=0.92,
-            entities=[asset],
-            url="",
+            source_score=0.92,
+            category="wire",
             cluster_id=f"arb_{asset}_{direction}",
         )
         item = NewsItem(
@@ -2045,20 +2333,27 @@ class NewsIngestionManager:
             f"{price:,.2f}",
         )
 
-        # Trigger auto-entry when smart money notional >= $50,000 USD
-        if notional >= float(os.getenv("WHALE_MIN_TRADE_USD", "50000")) and asset in ["BTC", "ETH", "SOL", "HYPE", "TRUMP", "DOGE", "AVAX"]:
+        # Maintain rolling whale sweep records for opposing-trade veto
+        if not hasattr(self, "_recent_whale_signals"):
+            self._recent_whale_signals: Dict[str, Tuple[str, float, float]] = {}  # asset -> (side, notional, timestamp)
+        self._recent_whale_signals[asset] = (side, notional, time.time())
+
+        # Trigger auto-entry when smart money notional >= $35,000 USD (Upgrade: Hyperliquid Whale Co-Pilot)
+        min_whale_usd = float(os.getenv("WHALE_MIN_TRADE_USD", "35000"))
+        if notional >= min_whale_usd and asset in ["BTC", "ETH", "SOL", "HYPE", "TRUMP", "DOGE", "AVAX"]:
             direction = "BULLISH" if side in ["BUY", "LONG"] else "BEARISH"
-            whale_event = NormalizedNewsEvent(
+            whale_event = _synthetic_normalized_event(
                 event_id=f"whale_{asset}_{int(time.time()*1000)}",
                 source_id="hyperliquid_whale",
                 publisher="HyperliquidTape",
                 headline=f"🐋 Hyperliquid Mega Whale {side} ${notional:,.0f} {asset}",
                 body=f"Smart money position entry on Hyperliquid tape at ${price:,.2f}",
+                entities=(asset,),
                 event_type="whale",
                 direction=direction,
                 confidence=0.88,
-                entities=[asset],
-                url="",
+                source_score=0.88,
+                category="wire",
                 cluster_id=f"whale_{asset}_{direction}",
             )
             item = NewsItem(
@@ -2082,6 +2377,10 @@ class NewsIngestionManager:
             )
             await self.on_news_callback(item, event)
 
+    async def handle_records(self, records):
+        """Public ingest path for Poke / webhook injectors."""
+        await self._handle_records(records)
+
     async def _poll_crypto_rss(self):
         await self.scheduler.run_forever()
 
@@ -2093,8 +2392,9 @@ class NewsIngestionManager:
 class LighterNewsSniperBot:
     """Master Orchestrator for Catalyst and Manual Trading."""
 
-    def __init__(self, is_live: bool = False, max_margin_pct: float = 85.0):
-        self.is_live = live_execution_allowed(is_live)
+    def __init__(self, is_live: bool = True, max_margin_pct: float = 85.0):
+        # Always request live; kill switch can still block via live_execution_allowed.
+        self.is_live = live_execution_allowed(True)
         self.classifier = CatalystClassifier()
         self.executor = MaxSizeExecutionEngine(
             is_live=self.is_live,
@@ -2102,25 +2402,26 @@ class LighterNewsSniperBot:
             default_tp_pct=2.5,
             default_sl_pct=1.5,
         )
+        self.executor._strategy_bot = self
         self.db_path = os.getenv("NEWS_DB_PATH", str(Path(__file__).with_name("lighter_news.db")))
         self.news_manager = NewsIngestionManager(self._handle_news_event, db_path=self.db_path)
         self.markets = MarketRegistry()
         self.tickers = TickerCache()
         self.intent_queue = TradeIntentQueue(self.db_path)
         self.positions = PositionBook(self.db_path)
-        self.paper_fills = PaperFillSimulator()
         self.metrics = NewsMetrics()
         self.audit = AuditLog(str(Path(__file__).with_name("news_audit.jsonl")))
         self.current_market_price = float(os.getenv("LIGHTER_ETH_PRICE", "2650.0"))
         self.current_market_timestamp = time.time()
         self.story_fingerprint_window_sec = float(os.getenv("NEWS_STORY_FINGERPRINT_WINDOW_SEC", "900.0"))
         self._story_fingerprints: List[Tuple[str, str, str, set, float]] = []
-        self.news_risk_gate = LighterNewsRiskGate(live=self.is_live)
+        self.news_risk_gate = LighterNewsRiskGate(live=True)
         self.momentum_filter = CrossExchangeMomentumFilter()
         self.news_risk_gate.momentum_filter = self.momentum_filter
         self._latest_news_events: Dict[str, NormalizedNewsEvent] = {}
-        self.shadow = os.getenv("NEWS_PROMOTION_MODE", "").strip().lower() == "shadow"
         self.kill_file = Path(__file__).with_name("NEWS_KILL_SWITCH")
+        self._kill_action_latched = False
+        self._kill_flatten_in_flight = False
         self.reconciled = False
         from news_scoreboard import ShadowScoreboard
         self.scoreboard = ShadowScoreboard(self.db_path)
@@ -2128,7 +2429,7 @@ class LighterNewsSniperBot:
 
         try:
             from master_profit_orchestrator import MasterProfitOrchestrator
-            self.orchestrator = MasterProfitOrchestrator(is_paper=(not self.is_live))
+            self.orchestrator = MasterProfitOrchestrator()
             logger.info("🏛️ [MasterProfitOrchestrator] Armed with ALL 125+ institutional quant strategies.")
         except Exception as oe:
             self.orchestrator = None
@@ -2141,7 +2442,6 @@ class LighterNewsSniperBot:
             self.recent_news = []
             self.tg_bot = LighterTelegramBot(
                 bot_context={
-                    "is_paper_mode": (not self.is_live) or self.shadow,
                     "market_index": 0,
                     "db": self.db,
                     "executor": self.executor,
@@ -2149,6 +2449,7 @@ class LighterNewsSniperBot:
                     "bot_instance": self,
                     "bot": self,
                     "orchestrator": self.orchestrator,
+                    "master_orchestrator": self.orchestrator,
                     "intent_queue": self.intent_queue,
                     "positions": self.positions,
                     "metrics": self.metrics,
@@ -2212,15 +2513,261 @@ class LighterNewsSniperBot:
             self.kill_file.write_text("1", encoding="utf-8")
         elif self.kill_file.exists():
             self.kill_file.unlink()
+            self._kill_action_latched = False
 
     def mode_label(self) -> str:
         if self.kill_engaged():
             return "KILLED"
-        if self.shadow:
-            return "SHADOW"
-        if self.is_live:
-            return "LIVE"
-        return "PAPER"
+        return "LIVE"
+
+    async def execute_strategy_entry(
+        self,
+        asset: str,
+        market_index: int,
+        is_ask: bool,
+        price: float,
+        *,
+        notional_usd: Optional[float] = None,
+        custom_tp_pct: Optional[float] = None,
+        reason: str = "STRATEGY_ENTRY",
+        entry_mode: str = "manual",
+        stop_distance_pct: float = 1.5,
+    ) -> Dict[str, Any]:
+        """
+        Canonical new-position path: risk gate (in-memory caps) → execute_trade.
+        SPEED_MODE: no snapshot/spread HTTP — uses caller price + cached collateral.
+        """
+        symbol = (asset or "").upper()
+        side = "SELL/SHORT" if is_ask else "BUY/LONG"
+        if self.kill_engaged():
+            await self.enforce_kill_cancel_flatten()
+            return {"success": False, "error": "kill switch engaged"}
+
+        from lighter_news_risk import MarketSnapshot
+
+        speed = self.executor._speed_mode()
+        snap_price = float(price or 0)
+        # Prefer in-memory ticker — never wait on HTTP before fire in SPEED_MODE
+        if not speed or snap_price <= 0:
+            cached = self.tickers.get(symbol) if hasattr(self, "tickers") else None
+            if cached and float(getattr(cached, "price", 0) or 0) > 0:
+                snap_price = float(cached.price)
+                snapshot = cached
+                snapshot.timestamp = time.time()
+            else:
+                snapshot = await self.executor.fetch_market_snapshot(symbol, market_index)
+                if snapshot and float(getattr(snapshot, "price", 0) or 0) > 0:
+                    snap_price = float(snapshot.price)
+                    snapshot.timestamp = time.time()
+                else:
+                    snapshot = MarketSnapshot(
+                        asset=symbol,
+                        price=snap_price,
+                        timestamp=time.time(),
+                        market_index=int(market_index),
+                    )
+        else:
+            cached = self.tickers.get(symbol) if hasattr(self, "tickers") else None
+            if cached and float(getattr(cached, "price", 0) or 0) > 0:
+                snap_price = float(cached.price)
+                snapshot = cached
+                snapshot.timestamp = time.time()
+            else:
+                snapshot = MarketSnapshot(
+                    asset=symbol,
+                    price=snap_price,
+                    timestamp=time.time(),
+                    market_index=int(market_index),
+                )
+
+        if not speed and float(getattr(snapshot, "spread_bps", 0) or 0) <= 0:
+            try:
+                spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market_index))
+                if spread > 0:
+                    snapshot.spread_bps = spread
+            except Exception:
+                pass
+
+        collateral = self.executor.cached_collateral_usd()
+        if collateral is None:
+            collateral = await self.executor.fetch_available_collateral_usd()
+        base_requested = float(notional_usd) if notional_usd is not None else float(
+            os.getenv("NEWS_REQUESTED_USD", "100.0")
+        )
+        if notional_usd is None and collateral and collateral > 0:
+            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "5.0"))
+            max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
+            compounded = round(collateral * (compounding_pct / 100.0), 2)
+            base_requested = max(base_requested, min(max_conviction_usd, compounded))
+        requested_usd = min(self.news_risk_gate.max_trade_usd, base_requested)
+
+        decision = await self.news_risk_gate.approve(
+            None,
+            snapshot,
+            requested_usd,
+            confirmed=True,
+            authorized=self._authorized(),
+            asset=symbol,
+            side=side,
+            collateral_usd=collateral,
+            stop_distance_pct=stop_distance_pct,
+            active_positions=self.executor.active_positions,
+            entry_mode=entry_mode,
+        )
+        if not decision.approved:
+            logger.warning("Strategy entry vetoed for %s: %s", symbol, "; ".join(decision.reasons))
+            return {
+                "success": False,
+                "error": "; ".join(decision.reasons) or "strategy gate rejected",
+                "reasons": list(decision.reasons),
+                "sized_usd": decision.sized_usd,
+            }
+
+        try:
+            result = await self.executor.execute_trade(
+                asset=symbol,
+                market_index=int(snapshot.market_index or market_index),
+                is_ask=is_ask,
+                current_market_price=float(snapshot.price or snap_price),
+                custom_tp_pct=custom_tp_pct,
+                reason=reason,
+                notional_usd=decision.sized_usd or requested_usd,
+                strategy_approved=True,
+                reservation_id=decision.reservation_id,
+                collateral_usd=collateral,
+            )
+            if result.get("success"):
+                self.news_risk_gate.record_fill(symbol)
+            return result
+        finally:
+            await self.news_risk_gate.release(decision.reservation_id, symbol, side)
+
+    def _kill_flatten_wanted(self) -> bool:
+        raw = os.getenv("KILL_FLATTEN")
+        if raw is None or str(raw).strip() == "":
+            return True
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    async def enforce_kill_cancel_flatten(self) -> bool:
+        """
+        When NEWS_KILL_SWITCH engages mid-run: cancel-all working orders,
+        optionally flatten open positions (KILL_FLATTEN, default true).
+        Returns True while kill remains engaged.
+        """
+        if not self.kill_engaged():
+            self._kill_action_latched = False
+            return False
+        if self._kill_flatten_in_flight:
+            return True
+
+        do_flatten = self._kill_flatten_wanted()
+        # After first engage, only re-run flatten if inventory still open.
+        if self._kill_action_latched:
+            if not do_flatten:
+                return True
+            try:
+                live = await self.executor.fetch_account_positions()
+            except Exception:
+                return True
+            still_open = [i for i in live if float(i.get("size") or 0) > 0]
+            if not still_open and not any(p.is_active for p in self.executor.active_positions.values()):
+                return True
+
+        self._kill_flatten_in_flight = True
+        try:
+            logger.critical(
+                "[KILL] NEWS_KILL_SWITCH engaged — cancel_all + flatten=%s (latched=%s)",
+                do_flatten,
+                self._kill_action_latched,
+            )
+            markets: set = set()
+            for pos in list(self.executor.active_positions.values()):
+                if pos.market_index not in (None, -1):
+                    markets.add(int(pos.market_index))
+            try:
+                live = await self.executor.fetch_account_positions()
+            except Exception as e:
+                logger.warning("[KILL] position fetch failed: %s", e)
+                live = []
+            for item in live:
+                mid = item.get("market_index")
+                if mid not in (None, -1):
+                    markets.add(int(mid))
+            try:
+                orders = await self.executor.fetch_open_orders()
+                for item in orders:
+                    mid = self.executor._order_int(item, "market_id", "market_index")
+                    if mid not in (None, -1):
+                        markets.add(int(mid))
+            except Exception as e:
+                logger.debug("[KILL] open-order scan: %s", e)
+
+            for market in markets:
+                try:
+                    await self.executor.cancel_open_orders(int(market))
+                except Exception as e:
+                    logger.error("[KILL] cancel_all market=%s failed: %s", market, e)
+
+            if do_flatten:
+                prices: Dict[str, float] = {}
+                for pos in list(self.executor.active_positions.values()):
+                    snap = self.tickers.get(pos.asset) if hasattr(self, "tickers") else None
+                    if snap and getattr(snap, "price", 0) > 0:
+                        prices[pos.asset.upper()] = float(snap.price)
+                try:
+                    closed = await self.executor.close_all_positions(prices or self.current_market_price)
+                    logger.critical("[KILL] Flattened %s tracked position(s)", closed)
+                except Exception as e:
+                    logger.error("[KILL] close_all_positions failed: %s", e)
+                try:
+                    live = await self.executor.fetch_account_positions()
+                except Exception:
+                    live = []
+                for item in live:
+                    symbol = str(item.get("symbol") or "").upper()
+                    size = float(item.get("size") or 0)
+                    if not symbol or size <= 0:
+                        continue
+                    mark = prices.get(symbol) or float(item.get("entry_price") or 0) or self.current_market_price
+                    dummy = ActivePosition(
+                        position_id=f"kill_{symbol}",
+                        asset=symbol,
+                        market_index=int(item.get("market_index") or 0),
+                        side=item.get("side") or "BUY/LONG",
+                        entry_price=float(item.get("entry_price") or mark or 0),
+                        size_eth=size,
+                        notional_usd=size * float(mark or 1),
+                    )
+                    try:
+                        await self.executor.cancel_open_orders(dummy.market_index)
+                        ok = await self.executor.close_position(dummy, mark)
+                        logger.critical("[KILL] Exchange flatten %s ok=%s", symbol, ok)
+                    except Exception as e:
+                        logger.error("[KILL] Exchange flatten %s failed: %s", symbol, e)
+
+            self._kill_action_latched = True
+        finally:
+            self._kill_flatten_in_flight = False
+        return True
+
+    @property
+    def markets_by_symbol(self) -> MarketRegistry:
+        return self.markets
+
+    async def on_incoming_news(self, records):
+        """Poke / injector path: same as NewsIngestionManager.handle_records."""
+        await self.news_manager.handle_records(records)
+
+    async def handle_normalized_event(self, event: NormalizedNewsEvent):
+        published_at = event.published_at.timestamp() if event.published_at else event.ingested_at.timestamp()
+        item = NewsItem(
+            source=event.publisher,
+            headline=event.headline,
+            body=event.body,
+            timestamp=published_at,
+            url=event.url or "",
+        )
+        await self._handle_news_event(item, event)
 
     async def _handle_news_event(self, news: NewsItem, event: Optional[NormalizedNewsEvent] = None):
         if event is None:
@@ -2314,7 +2861,7 @@ class LighterNewsSniperBot:
                         market_index=market.market_index,
                     )
                     self.tickers.update(snapshot)
-                elif self.is_live:
+                else:
                     # Final fallback to last known price in tickers
                     last_known = self.tickers.get(market.symbol)
                     if last_known and last_known.price > 0:
@@ -2324,13 +2871,18 @@ class LighterNewsSniperBot:
                         self.metrics.inc("stale_price_veto")
                         logger.warning("News signal vetoed: live market price is missing or stale for %s", market.symbol)
                         return
-                else:
-                    snapshot = fallback_snapshot
         if snapshot:
             snapshot.timestamp = time.time()
-        spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market.market_index))
-        if spread > 0 and snapshot:
-            snapshot.spread_bps = spread
+        # Prefer snapshot/book spread; only hit HTTP if missing or SPEED_SKIP_SPREAD_CHECK off
+        skip_spread_http = self.executor._speed_mode() and os.getenv(
+            "SPEED_SKIP_SPREAD_CHECK", "1"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if skip_spread_http and snapshot and float(getattr(snapshot, "spread_bps", 0) or 0) > 0:
+            spread = float(snapshot.spread_bps)
+        else:
+            spread = await self.executor.fetch_spread_bps(int(snapshot.market_index or market.market_index))
+            if spread > 0 and snapshot:
+                snapshot.spread_bps = spread
 
         if side not in market.enabled_sides:
             self.metrics.inc("side_disabled")
@@ -2370,9 +2922,17 @@ class LighterNewsSniperBot:
             logger.debug("L2 Imbalance check skipped: %s", e)
 
         authorized = self._authorized()
-        collateral = await self.executor.fetch_available_collateral_usd()
+        # Reuse cached collateral from compounding step (TTL cache) — do not double-fetch
         momentum_confirmed = None
-        if self.momentum_filter and event.confidence >= self.momentum_filter.high_conviction_threshold:
+        skip_momentum = (
+            self.executor._speed_mode()
+            and os.getenv("SPEED_SKIP_MOMENTUM", "1").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        if (
+            not skip_momentum
+            and self.momentum_filter
+            and event.confidence >= self.momentum_filter.high_conviction_threshold
+        ):
             sentiment = "BULLISH" if side.startswith("BUY") else "BEARISH"
             m_conf = await self.momentum_filter.verify_spike(market.symbol, sentiment, conviction_score=event.confidence)
             if m_conf.confirmed:
@@ -2385,6 +2945,9 @@ class LighterNewsSniperBot:
                 requested_usd = min(requested_usd, base_requested)
                 logger.warning("⚠️ Cross-Exchange Momentum unconfirmed: %s (Executing with baseline sizing $%.2f)", m_conf.summary, requested_usd)
                 momentum_confirmed = True if not getattr(self.momentum_filter, "require_confirmation", False) else None
+        elif skip_momentum:
+            momentum_confirmed = True
+            self.metrics.inc("momentum_skipped_speed")
 
         # Refresh snapshot timestamp right before risk gate approval to eliminate any network latency jitter
         if snapshot:
@@ -2411,28 +2974,9 @@ class LighterNewsSniperBot:
             return
 
         if self.kill_engaged():
+            await self.enforce_kill_cancel_flatten()
             await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
             self.metrics.inc("killed")
-            return
-        if self.shadow:
-            self.metrics.inc("shadow_signal")
-            self.audit.emit("shadow", event.event_id, asset=market.symbol, side=side, usd=decision.sized_usd)
-            from news_scoreboard import ShadowBet
-            self.scoreboard.record(ShadowBet(
-                bet_id=event.event_id, asset=market.symbol, side=side, event_type=event.event_type,
-                headline=event.headline, entry_price=snapshot.price, created_at=time.time(),
-                cluster_id=event.cluster_id,
-            ))
-            try:
-                from lighter_telegram import tg_send
-                tg_send(
-                    f"👁 <b>SHADOW — would have traded</b>\n"
-                    f"📰 {event.headline}\n"
-                    f"🎯 {market.symbol} {side} ${decision.sized_usd:.2f}"
-                )
-            except Exception:
-                pass
-            await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
             return
 
         intent = await self.intent_queue.enqueue(event, market, side, decision.sized_usd or requested_usd)
@@ -2451,6 +2995,9 @@ class LighterNewsSniperBot:
                 current_market_price=snapshot.price,
                 reason=f"NEWS: {event.headline[:40]}",
                 notional_usd=decision.sized_usd or requested_usd,
+                strategy_approved=True,
+                reservation_id=decision.reservation_id,
+                collateral_usd=collateral,
             )
             if not result.get("success"):
                 await self.intent_queue.mark(intent.intent_id, "rejected", reasons=(str(result.get("error", "execution failed")),))
@@ -2461,7 +3008,7 @@ class LighterNewsSniperBot:
             await self.intent_queue.mark(intent.intent_id, "filled", reservation_id=decision.reservation_id)
             self.positions.activate_from_fill(intent)
             self.news_risk_gate.record_fill(market.symbol)
-            self.metrics.inc("filled_live" if self.is_live else "filled_paper")
+            self.metrics.inc("filled_live")
 
             # Attach catalyst headline & type directly to executor active position
             active_exec_pos = self.executor.existing_position(market.symbol, int(snapshot.market_index or market.market_index))
@@ -2482,7 +3029,11 @@ class LighterNewsSniperBot:
             self.audit.emit("filled", event.event_id, mode=result.get("mode"), asset=market.symbol, side=side, notional=result.get("notional_usd"))
             try:
                 from lighter_telegram import format_fill_card, tg_send
-                tg_send(format_fill_card(result, headline=event.headline))
+                card = format_fill_card(result, headline=event.headline)
+                if self.executor._speed_mode():
+                    asyncio.get_running_loop().run_in_executor(None, tg_send, card)
+                else:
+                    tg_send(card)
             except Exception as tge:
                 logger.warning("Telegram alert error: %s", tge)
         finally:
@@ -2530,7 +3081,7 @@ class LighterNewsSniperBot:
         if not wanted:
             return
         leftover = set(wanted)
-        live = await self.executor.fetch_account_positions() if self.executor.is_live else []
+        live = await self.executor.fetch_account_positions()
         live_by_sym = {str(item.get("symbol") or "").upper(): item for item in live}
         for symbol in list(wanted):
             pos = self.executor.existing_position(symbol)
@@ -2576,6 +3127,9 @@ class LighterNewsSniperBot:
         """Monitors active positions every second for Take-Profit and Stop-Loss."""
         while True:
             try:
+                if await self.enforce_kill_cancel_flatten():
+                    await asyncio.sleep(1.0)
+                    continue
                 # 1. Automatically adopt & sync all on-chain exchange positions with TP/SL
                 prices: Dict[str, float] = await self.executor.sync_and_adopt_all_live_positions()
                 for pos in self.executor.active_positions.values():
@@ -2589,6 +3143,13 @@ class LighterNewsSniperBot:
                     await self._honor_close_requests(prices)
                 except Exception as close_err:
                     logger.warning("Close-request file: %s", close_err)
+                # ALWAYS re-arm missing TP/SL before anything else
+                try:
+                    enforce = await self.executor.enforce_exits_on_all_positions()
+                    if enforce.get("retried") or enforce.get("armed") or enforce.get("missing_local"):
+                        logger.info("Exit enforce %s", enforce)
+                except Exception as enf_err:
+                    logger.warning("Exit enforce: %s", enf_err)
                 try:
                     care = await self.executor.care_open_orders(prices)
                     if care.get("cancelled") or care.get("flattened") or care.get("attached"):
@@ -2654,7 +3215,7 @@ class LighterNewsSniperBot:
                             self.executor.ensure_exit_prices(pos)
                             pos.exchange_tp = pos.exchange_sl = False
                             try:
-                                await self.executor.place_protective_exits(pos, pos.tp_price, pos.sl_price)
+                                await self.executor.arm_protective_exits(pos, retries=3)
                             except Exception as prot_err:
                                 logger.debug("Re-arm TP/SL after partial: %s", prot_err)
                             logger.info(
@@ -2696,9 +3257,6 @@ class LighterNewsSniperBot:
             await asyncio.sleep(1.0)
 
     async def reconcile_exchange(self) -> None:
-        if not self.executor.is_live:
-            self.reconciled = True
-            return
         found = await self.executor.fetch_account_positions()
         logger.info("Startup reconcile found %s exchange position(s)", len(found))
         flatten = os.getenv("NEWS_STARTUP_FLATTEN", "false").lower() in {"1", "true", "yes"}
@@ -2882,11 +3440,16 @@ class LighterNewsSniperBot:
         # 1. Launch Integrated Fast Telegram Poller IMMEDIATELY for zero-lag command response
         try:
             from lighter_telegram import LighterTelegramBot
+            orch = getattr(self, "orchestrator", None)
             tg_ctx = {
                 "executor": self.executor,
                 "bot": self,
+                "bot_instance": self,
                 "markets": self.markets,
                 "db": getattr(self, "db", None),
+                "news_manager": self.news_manager,
+                "orchestrator": orch,
+                "master_orchestrator": orch,
             }
             self.tg_bot = LighterTelegramBot(tg_ctx)
             asyncio.create_task(self.tg_bot.run_fast_polling())
@@ -2911,7 +3474,7 @@ class LighterNewsSniperBot:
 
         if self.is_live:
             try:
-                await asyncio.wait_for(self.executor._ensure_signer(), timeout=5.0)
+                await asyncio.wait_for(self.executor.prewarm(), timeout=8.0)
                 if self.executor.signer_client is None:
                     logger.error("Live mode requested but SignerClient is unavailable — no orders will send")
                 else:
@@ -2919,6 +3482,10 @@ class LighterNewsSniperBot:
                 await asyncio.wait_for(self.reconcile_exchange(), timeout=5.0)
             except Exception as e:
                 logger.warning("Signer / reconciliation fallback: %s", e)
+
+        if self.kill_engaged():
+            logger.critical("[KILL] Engaged at startup — running cancel_all + optional flatten")
+            await self.enforce_kill_cancel_flatten()
 
         await self.news_manager.start()
         asyncio.create_task(self._price_loop())
@@ -2933,30 +3500,9 @@ class LighterNewsSniperBot:
         except Exception as e:
             logger.warning("Poke AI cluster startup fallback: %s", e)
 
-        # 3. Launch Hyperliquid Whale Flow Front-Runner ($250k+ Institutional Market Tape)
-        try:
-            from hyperliquid_whale_tracker import HyperliquidWhaleTracker
-            async def handle_whale_signal(sig: Dict[str, Any]):
-                from news_pipeline import NewsRecord
-                rec = NewsRecord(
-                    source_id=f"HL_WHALE_{sig.get('asset')}",
-                    headline=sig.get("headline", ""),
-                    direction="BULLISH" if sig.get("side") == "BUY" else "BEARISH",
-                    event_type="WHALE_TAPE_BURST",
-                    confidence=float(sig.get("conviction", 0.88)),
-                    entities=[sig.get("asset", "")],
-                    published_at=time.time(),
-                )
-                logger.info("🐋 [WHALE FRONT-RUNNER] Received Hyperliquid Whale Flow: %s", rec.headline)
-                await self.on_incoming_news([rec])
+        # Whale tape is started once in NewsIngestionManager.start(); do not spawn a second tracker.
 
-            self.whale_tracker = HyperliquidWhaleTracker(on_whale_signal=handle_whale_signal)
-            asyncio.create_task(self.whale_tracker.start())
-            logger.info("🐋 [Whale Flow Front-Runner] Real-time Hyperliquid tape & liquidation front-runner active")
-        except Exception as we:
-            logger.warning("Hyperliquid Whale Tracker startup fallback: %s", we)
-
-        # 4. Launch Volatility Squeeze, Tri-Arb, Latency Arb & Maritime Geopolitical Sniper
+        # 3. Launch Volatility Squeeze, Tri-Arb, Latency Arb & Maritime Geopolitical Sniper
         try:
             from volatility_squeeze_engine import VolatilitySqueezeEngine
             from triangular_arbitrage import TriangularArbitrageScanner
@@ -2969,27 +3515,24 @@ class LighterNewsSniperBot:
             async def _on_geopolitical_incident(inc):
                 for target_asset in inc.target_assets:
                     m = self.markets_by_symbol.get(target_asset)
-                    if m and m.market_id is not None:
-                        logger.info("🌍 [MARITIME GEOPOLITICAL SNIPE] %s -> %s (Side: %s, Conf: %.2f)", inc.headline, target_asset, inc.direction, inc.confidence)
-                        event = NormalizedNewsEvent(
-                            event_id=f"GEO_{inc.incident_id}",
-                            source_id="MARITIME_OSINT",
-                            publisher="GeopoliticalSniper",
-                            headline=inc.headline,
-                            body=inc.headline,
-                            url="",
-                            guid=inc.incident_id,
-                            published_at=datetime.now(timezone.utc),
-                            ingested_at=datetime.now(timezone.utc),
-                            source_score=0.95,
-                            category="GEOPOLITICAL_COMMODITY",
-                            content_hash=inc.incident_id,
-                            entities=(target_asset,),
-                            event_type=inc.chokepoint_type,
-                            direction=inc.direction,
-                            confidence=inc.confidence,
-                        )
-                        await self.handle_normalized_event(event)
+                    if m is None:
+                        continue
+                    logger.info("🌍 [MARITIME GEOPOLITICAL SNIPE] %s -> %s (Side: %s, Conf: %.2f)", inc.headline, target_asset, inc.direction, inc.confidence)
+                    event = _synthetic_normalized_event(
+                        event_id=f"GEO_{inc.incident_id}",
+                        source_id="MARITIME_OSINT",
+                        publisher="GeopoliticalSniper",
+                        headline=inc.headline,
+                        body=inc.headline,
+                        entities=(target_asset,),
+                        event_type=inc.chokepoint_type,
+                        direction=inc.direction,
+                        confidence=inc.confidence,
+                        source_score=0.95,
+                        category="GEOPOLITICAL_COMMODITY",
+                        guid=inc.incident_id,
+                    )
+                    await self.handle_normalized_event(event)
 
             self.maritime_sniper = MaritimeGeopoliticalSniper(on_incident_callback=_on_geopolitical_incident)
             asyncio.create_task(self.maritime_sniper.start())
@@ -3007,9 +3550,9 @@ class LighterNewsSniperBot:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Lighter News & Manual Catalyst Sniper Bot")
-    parser.add_argument("--live", action="store_true", help="Enable live order execution with real funds")
+    parser.add_argument("--live", action="store_true", default=True, help="Live order execution (default; always on)")
     parser.add_argument("--margin-pct", type=float, default=85.0, help="Max collateral margin utilization percentage")
     args = parser.parse_args()
 
-    bot = LighterNewsSniperBot(is_live=args.live, max_margin_pct=args.margin_pct)
+    bot = LighterNewsSniperBot(is_live=True, max_margin_pct=args.margin_pct)
     asyncio.run(bot.run())

@@ -7,7 +7,7 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from news_pipeline import NormalizedNewsEvent
 from news_quality import quality_veto
@@ -40,21 +40,42 @@ class MarketSnapshot:
         return self.price > 0 and time.time() - self.timestamp <= max_age
 
 
-def promotion_mode() -> str:
-    return os.getenv("NEWS_PROMOTION_MODE", "paper").strip().lower()
+def _settings_or_none():
+    try:
+        from settings import get_settings
+
+        return get_settings()
+    except Exception:
+        return None
 
 
-def live_execution_allowed(cli_live: bool) -> bool:
-    """`--live` is the operator confirmation. Kill switch still wins."""
+def _kill_switch_on() -> bool:
+    # Prefer live process env so tests can toggle NEWS_KILL_SWITCH without cache issues.
     if os.getenv("NEWS_KILL_SWITCH", "").lower() in {"1", "true", "yes"}:
-        return False
-    if not cli_live:
-        return False
-    mode = promotion_mode()
-    if mode in {"paper", "shadow"}:
-        # Explicit --live still means live; paper/shadow only apply without --live.
         return True
-    return True
+    s = _settings_or_none()
+    return bool(s.news_kill_switch) if s is not None else False
+
+
+def promotion_mode() -> str:
+    env = os.getenv("NEWS_PROMOTION_MODE")
+    if env is not None and str(env).strip() != "":
+        return str(env).strip().lower()
+    s = _settings_or_none()
+    if s is not None:
+        return (s.news_promotion_mode or "live").strip().lower()
+    return "live"
+
+
+def live_execution_allowed(cli_live: bool = True) -> bool:
+    """Allow live fills when requested, unless the kill switch is engaged.
+
+    Promotion / paper / dry-run modes do not gate execution — only the kill switch
+    and an explicit False live flag block orders.
+    """
+    if _kill_switch_on():
+        return False
+    return bool(cli_live)
 
 # =============================================================================
 # UPGRADE 5 — Session-Aware Sizing Gate
@@ -106,7 +127,7 @@ def session_size_multiplier(symbol: str) -> float:
 
 
 class LighterNewsRiskGate:
-    def __init__(self, live: bool = False) -> None:
+    def __init__(self, live: bool = True) -> None:
         self.live = live
         self.execution_live = live_execution_allowed(live)
         self.max_exposure_usd = float(os.getenv("NEWS_MAX_EXPOSURE_USD", "1000"))
@@ -171,14 +192,16 @@ class LighterNewsRiskGate:
         momentum_confirmed: Optional[bool] = None,
         has_open_position: Optional[bool] = None,
         active_positions: Optional[Dict[str, Any]] = None,
+        entry_mode: str = "news",
     ) -> RiskDecision:
         reasons = []
+        manual = str(entry_mode or "news").strip().lower() in {"manual", "telegram", "copilot", "strategy"}
         self._roll_day()
         kill_file = os.getenv("NEWS_KILL_SWITCH_FILE", "NEWS_KILL_SWITCH")
-        if os.getenv("NEWS_KILL_SWITCH", "").lower() in {"1", "true", "yes"} or os.path.exists(kill_file):
+        if _kill_switch_on() or os.path.exists(kill_file):
             reasons.append("news kill switch is engaged")
         if self.live and not self.execution_live:
-            reasons.append("live promotion gate is closed; paper/shadow/canary only")
+            reasons.append("live execution blocked (kill switch engaged)")
         if requested_usd <= 0:
             reasons.append("trade size exceeds news risk cap")
         if self.live and not authorized:
@@ -191,21 +214,32 @@ class LighterNewsRiskGate:
             reasons.append("market spread exceeds news risk cap")
         if snapshot and snapshot.volatility_bps > float(os.getenv("NEWS_MAX_VOL_BPS", "250")):
             reasons.append("volatility shock circuit breaker")
-        ok, veto_reason = quality_veto(event)
-        if not ok:
-            reasons.append(veto_reason)
-        elif event is not None and event.confidence < self.min_confidence:
-            reasons.append("news confidence is below threshold")
-        elif event is not None and event.contradiction:
-            reasons.append("contradictory news cluster")
-        elif event is not None and event.invalidated:
-            reasons.append("news cluster was corrected or retracted")
-        if self.live and self.confirmed_only and not confirmed:
-            reasons.append("news event lacks independent-source confirmation")
+        # Toxic Flow Pre-Trade Veto: Check adverse taker volume ratio
+        adverse_taker_ratio = float(getattr(snapshot, "adverse_taker_ratio", 0.0) or 0.0)
+        if adverse_taker_ratio >= float(os.getenv("NEWS_MAX_TOXIC_FLOW_RATIO", "0.70")):
+            reasons.append(f"toxic order flow veto: adverse taker volume {adverse_taker_ratio*100:.1f}% >= 70%")
+        if not manual:
+            ok, veto_reason = quality_veto(event)
+            if not ok:
+                reasons.append(veto_reason)
+            elif event is not None and event.confidence < self.min_confidence:
+                reasons.append("news confidence is below threshold")
+            elif event is not None and event.contradiction:
+                reasons.append("contradictory news cluster")
+            elif event is not None and event.invalidated:
+                reasons.append("news cluster was corrected or retracted")
+            if self.live and self.confirmed_only and not confirmed:
+                reasons.append("news event lacks independent-source confirmation")
         if momentum_confirmed is False:
             if getattr(self, "require_momentum_confirmation", False):
                 reasons.append("cross-exchange momentum confirmation failed (no Binance/Bybit volume spike)")
-        elif momentum_confirmed is None and getattr(self, "momentum_filter", None) is not None and event is not None and asset:
+        elif (
+            not manual
+            and momentum_confirmed is None
+            and getattr(self, "momentum_filter", None) is not None
+            and event is not None
+            and asset
+        ):
             try:
                 sentiment = "BULLISH" if side.startswith("BUY") else "BEARISH" if side.startswith("SELL") else "NEUTRAL"
                 # Only check crypto assets mapped in momentum_filter
@@ -343,7 +377,7 @@ class LighterNewsRiskGate:
 
     def readiness(self, authorized: bool, snapshot: Optional[MarketSnapshot], has_markets: bool) -> tuple[bool, tuple[str, ...]]:
         reasons = []
-        if os.getenv("NEWS_KILL_SWITCH", "").lower() in {"1", "true", "yes"}:
+        if _kill_switch_on():
             reasons.append("kill switch")
         if self.live and not authorized:
             reasons.append("missing telegram authorization")
@@ -352,7 +386,7 @@ class LighterNewsRiskGate:
         if not has_markets:
             reasons.append("market registry empty")
         if self.live and not self.execution_live:
-            reasons.append("live confirmation missing")
+            reasons.append("kill switch engaged")
         return (not reasons), tuple(reasons)
 
     @property
