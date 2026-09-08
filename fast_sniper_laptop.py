@@ -70,8 +70,9 @@ BROADCAST_RPCS = [
 ]
 
 WS_RPC_URLS = [
+    "wss://base-mainnet.g.alchemy.com/v2/alch_LIIbvQyi5k3g2RvSxoPoM",
+    "wss://base.drpc.org",
     "wss://base.publicnode.com",
-    "wss://base-rpc.publicnode.com",
 ]
 
 SNIPE_AMOUNT_ETH = float(os.getenv("LAPTOP_SNIPE_AMOUNT_ETH", "1.0"))
@@ -154,7 +155,34 @@ class ZeroLatencyLaptopSniper:
         for fee in [100, 500, 3000, 10000]:
             params = (WETH, TARGET_TOKEN, fee, self.wallet_address, amount_in_wei, 0, 0)
             self.precalculated_calldata[fee] = c.encode_abi("exactInputSingle", [params])
-        logger.info("Pre-encoded swap calldata for fee tiers [100, 500, 3000, 10000]")
+
+        # Pre-encode Aerodrome router swap calldata
+        aero_abi = [{
+            "name": "swapExactETHForTokens",
+            "type": "function",
+            "stateMutability": "payable",
+            "inputs": [
+                {"name": "amountOutMin", "type": "uint256"},
+                {
+                    "name": "routes",
+                    "type": "tuple[]",
+                    "components": [
+                        {"name": "from", "type": "address"},
+                        {"name": "to", "type": "address"},
+                        {"name": "stable", "type": "bool"},
+                        {"name": "factory", "type": "address"}
+                    ]
+                },
+                {"name": "to", "type": "address"},
+                {"name": "deadline", "type": "uint256"}
+            ],
+            "outputs": [{"type": "uint256[]"}]
+        }]
+        aero_c = self.w3.eth.contract(address=AERODROME_ROUTER, abi=aero_abi)
+        routes = [(WETH, TARGET_TOKEN, False, AERODROME_FACTORY)]
+        deadline = int(time.time()) + 1800
+        self.precalculated_calldata[999999] = aero_c.encode_abi("swapExactETHForTokens", [0, routes, self.wallet_address, deadline])
+        logger.info("Pre-encoded swap calldata for Uniswap V3 and Aerodrome [volatile pair]")
 
     async def init_session(self):
         # TCP Keep-Alive + Pool of 100 + DNS Caching enabled
@@ -205,9 +233,10 @@ class ZeroLatencyLaptopSniper:
         amount_in_wei = Web3.to_wei(SNIPE_AMOUNT_ETH, "ether")
 
         for fee_tier, calldata in self.precalculated_calldata.items():
+            router_target = AERODROME_ROUTER if fee_tier == 999999 else UNISWAP_V3_ROUTER
             tx = {
                 "from": self.wallet_address,
-                "to": UNISWAP_V3_ROUTER,
+                "to": router_target,
                 "value": amount_in_wei,
                 "data": calldata,
                 "nonce": self.nonce,
@@ -394,14 +423,19 @@ class ZeroLatencyLaptopSniper:
                             data = json.loads(msg)
                             result = data.get("params", {}).get("result", {})
                             if isinstance(result, dict) and "topics" in result:
-                                fee = 3000
-                                try:
-                                    fee_hex = result["topics"][3]
-                                    fee = int(fee_hex, 16)
-                                except Exception:
-                                    pass
-                                await self.execute_snipe("PoolCreated Event Mined with $LAPTOP", fee_tier=fee)
-                                break
+                                first_topic = result["topics"][0].lower() if result["topics"] else ""
+                                if PAIR_CREATED_AERO_TOPIC.lower() in first_topic:
+                                    await self.execute_snipe("Aerodrome PairCreated Event Mined with $LAPTOP", fee_tier=999999)
+                                    break
+                                else:
+                                    fee = 3000
+                                    try:
+                                        fee_hex = result["topics"][3]
+                                        fee = int(fee_hex, 16)
+                                    except Exception:
+                                        pass
+                                    await self.execute_snipe("PoolCreated Event Mined with $LAPTOP", fee_tier=fee)
+                                    break
                             elif isinstance(result, str):
                                 await self.execute_snipe("Deployer Mempool Transaction Detected")
                                 break
