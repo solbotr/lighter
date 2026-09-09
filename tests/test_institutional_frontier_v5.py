@@ -17,19 +17,19 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from heartbeat_deadmans_switch import (
+from quant_engines.heartbeat_deadmans_switch import (
     DeadMansHeartbeatSwitch,
     HeartbeatStatus,
 )
-from gas_congestion_arbitrageur import (
+from quant_engines.gas_congestion_arbitrageur import (
     L2GasCongestionArbitrageur,
     CongestionMetrics,
 )
-from basket_cointegration_engine import (
+from quant_engines.basket_cointegration_engine import (
     BasketCointegrationEngine,
     BasketTradeSignal,
 )
-from performance_attribution_deck import (
+from quant_engines.performance_attribution_deck import (
     PerformanceAttributionEngine,
     PerformanceAttributionDeck,
 )

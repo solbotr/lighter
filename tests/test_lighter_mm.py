@@ -538,6 +538,8 @@ async def test_hybrid_quoting_engine_instant_catalyst_switch(monkeypatch):
     monkeypatch.setenv("ADMIN_CHAT_ID", "999001")
     monkeypatch.setenv("NEWS_KILL_SWITCH", "false")
     monkeypatch.delenv("NEWS_KILL_SWITCH", raising=False)
+    # Synthetic classifier-only catalyst (no upstream feed event) must be live-eligible for this test
+    monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "mm_catalyst")
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
         db_path = tf.name

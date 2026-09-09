@@ -19,11 +19,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from fourier_orderbook_oscillator import FourierOrderbookOscillator
-from ledoit_wolf_risk_parity import LedoitWolfRiskParityOptimizer
-from liquidity_evaporation_radar import LiquidityEvaporationRadar
-from vpj_crash_shield import VolumeSynchronizedJumpCrashShield
-from subaccount_rebalance_pipeline import SubaccountRebalancePipeline
+from quant_engines.fourier_orderbook_oscillator import FourierOrderbookOscillator
+from quant_engines.ledoit_wolf_risk_parity import LedoitWolfRiskParityOptimizer
+from quant_engines.liquidity_evaporation_radar import LiquidityEvaporationRadar
+from quant_engines.vpj_crash_shield import VolumeSynchronizedJumpCrashShield
+from quant_engines.subaccount_rebalance_pipeline import SubaccountRebalancePipeline
 
 
 def test_fourier_spectral_oscillator():

@@ -17,19 +17,19 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from spoofing_detector import (
+from quant_engines.spoofing_detector import (
     HFTSpoofingDetector,
     SpoofingMetrics,
 )
-from monte_carlo_var_simulator import (
+from quant_engines.monte_carlo_var_simulator import (
     MonteCarloRiskSimulator,
     PortfolioVaRReport,
 )
-from cross_chain_liquidity_bridger import (
+from quant_engines.cross_chain_liquidity_bridger import (
     CrossChainLiquidityBridger,
     CrossChainArbRoute,
 )
-from vip_tg_twitter_broadcaster import (
+from quant_engines.vip_tg_twitter_broadcaster import (
     VIPSignalBroadcaster,
     BroadcastSignal,
 )

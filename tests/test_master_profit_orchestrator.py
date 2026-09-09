@@ -20,7 +20,7 @@ from subaccount_manager import (
     SubaccountRole,
     SubaccountManager,
 )
-from liquidation_hunter import (
+from quant_engines.liquidation_hunter import (
     LiquidationSide,
 )
 

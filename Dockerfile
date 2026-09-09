@@ -33,5 +33,5 @@ RUN mkdir -p /app/data
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import lighter_news_sniper" || exit 1
 
-# Live by default. For supervised restarts: CMD ["python", "watchdog_supervisor.py"]
-CMD ["python", "lighter_news_sniper.py", "--live", "--margin-pct", "85"]
+# Supervise the sniper and, when MM_ENABLED=1, the market maker.
+CMD ["python", "watchdog_supervisor.py"]

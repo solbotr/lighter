@@ -18,9 +18,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from order_flow_imbalance_engine import MicrosecondOFIPredictor
-from triangular_arbitrage_engine import TriangularArbitrageEngine
-from delta_neutral_basis_vault import DeltaNeutralBasisVault
+from quant_engines.order_flow_imbalance_engine import MicrosecondOFIPredictor
+from quant_engines.triangular_arbitrage_engine import TriangularArbitrageEngine
+from quant_engines.delta_neutral_basis_vault import DeltaNeutralBasisVault
 from chandelier_trailing_engine import ChandelierTrailingEngine, CandleBar
 from stealth_iceberg_router import StealthIcebergRouter
 

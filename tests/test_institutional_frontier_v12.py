@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from almgren_chriss_execution import AlmgrenChrissExecutionEngine
-from roll_effective_spread import RollEffectiveSpreadEngine
-from dynamic_beta_hedger import DynamicBetaHedger
-from entropy_signal_combiner import EntropySignalCombiner, AlphaSignalInput
-from nonce_ahead_accelerator import RollupNonceAheadAccelerator
+from quant_engines.almgren_chriss_execution import AlmgrenChrissExecutionEngine
+from quant_engines.roll_effective_spread import RollEffectiveSpreadEngine
+from quant_engines.dynamic_beta_hedger import DynamicBetaHedger
+from quant_engines.entropy_signal_combiner import EntropySignalCombiner, AlphaSignalInput
+from quant_engines.nonce_ahead_accelerator import RollupNonceAheadAccelerator
 
 
 def test_almgren_chriss_optimal_schedule():

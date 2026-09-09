@@ -333,12 +333,11 @@ def tg_bot(mock_executor, monkeypatch):
 async def test_tg_bot_natural_language_snipe(tg_bot, mock_executor):
     # Send natural language order: "snipe $200 long SOL"
     msg, kb = await tg_bot.handle_user_action("snipe $200 long SOL", user_id=12345)
-    
-    assert "COPILOT BUY/LONG EXECUTED" in msg
+
+    assert "COPILOT STRATEGY GATE BLOCKED" in msg
     assert "SOL" in msg
-    assert "$200.00 USD" in msg
-    assert "Subaccount Shard" in msg
-    mock_executor.execute_trade.assert_called_once()
+    assert "strategy bot unavailable" in msg
+    mock_executor.execute_trade.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -507,4 +506,3 @@ async def test_ensure_margin_available_jit():
     )
     assert success is True
     assert manager.states[737649].collateral_usd >= 10.0
-

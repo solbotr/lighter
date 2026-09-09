@@ -16,15 +16,15 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from microstructure_entry_filter import (
+from quant_engines.microstructure_entry_filter import (
     MicrostructureEntryFilter,
     MicrostructureDecision,
 )
-from advanced_tpsl_engine import (
+from quant_engines.advanced_tpsl_engine import (
     AdvancedTPSLEngine,
     ExitAction,
 )
-from macro_onchain_sources import (
+from quant_engines.macro_onchain_sources import (
     MacroOnChainSourcesEngine,
     MacroSignal,
 )

@@ -22,6 +22,54 @@ CRYPTO = {"BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "ADA", "AVAX", "BNB", "LTC
 
 import os
 
+
+def classify_catalyst(news_headline: str | None, catalyst_type: str | None) -> str:
+    """Classify a news catalyst using the exit policy's precedence and keywords."""
+    head = (news_headline or "").lower()
+    cat = (catalyst_type or "").upper()
+    if (
+        any(k in head for k in ["binance will list", "upbit will list", "bithumb will list", "fda approval", "fda approves", "etf approved", "sec approved", "breaks all-time", "massive beat", "record revenue"])
+        or cat in ["TIER_1_LISTING", "FDA_APPROVAL", "EARNINGS_SURPRISE", "MEGA_CATALYST"]
+    ):
+        return "TIER1"
+    if (
+        any(k in head for k in ["fomc", "interest rate", "cpi", "inflation", "non-farm", "fed cuts", "ecb", "boj", "powell"])
+        or cat in ["MACRO", "CENTRAL_BANK", "CPI_INFLATION"]
+    ):
+        return "MACRO"
+    if (
+        any(k in head for k in ["partnership", "partners with", "invests", "acquisition", "expands into", "integration", "mainnet"])
+        or cat in ["PARTNERSHIP", "ADOPTION", "MAINNET"]
+    ):
+        return "PARTNERSHIP"
+    return "OTHER"
+
+
+def _time_stop_seconds_for_class(catalyst_class: str) -> float:
+    if "NEWS_MAX_HOLD_MINUTES" in os.environ:
+        minutes = float(os.environ["NEWS_MAX_HOLD_MINUTES"])
+    elif "NEWS_MAX_HOLD_DAYS" in os.environ:
+        minutes = float(os.environ["NEWS_MAX_HOLD_DAYS"]) * 1440.0
+    else:
+        minutes = {
+            "TIER1": 240.0,
+            "MACRO": 90.0,
+            "PARTNERSHIP": 120.0,
+            "OTHER": 60.0,
+        }[catalyst_class]
+    return minutes * 60.0
+
+
+def time_stop_seconds(
+    symbol: str,
+    news_headline: str | None = None,
+    catalyst_type: str | None = None,
+) -> float:
+    """Return the configured catalyst-aware maximum hold time in seconds."""
+    del symbol  # Reserved for future asset-specific policies.
+    return _time_stop_seconds_for_class(classify_catalyst(news_headline, catalyst_type))
+
+
 def policy_for(
     symbol: str,
     override_tp: float | None = None,
@@ -31,9 +79,8 @@ def policy_for(
     catalyst_type: str | None = None,
 ) -> ExitPolicy:
     sym = (symbol or "").upper()
-    # Support holding positions indefinitely / multi-day (default 30 days)
-    hold_days = float(os.getenv("NEWS_MAX_HOLD_DAYS", "30.0"))
-    max_hold_sec = hold_days * 86400.0
+    catalyst_class = classify_catalyst(news_headline, catalyst_type)
+    max_hold_sec = _time_stop_seconds_for_class(catalyst_class)
 
     # 1. Base Asset Category Default Policy
     # Inverted Asymmetric SL/TP Ratio: Tighten baseline SL from -1.50% to -0.85% (equities -0.75%)
@@ -50,29 +97,20 @@ def policy_for(
         base = ExitPolicy(1.50, env_sl or 0.75, 1.00, 0.60, max_hold_sec, 60)
 
     # 2. News Catalyst Classification & Tailored TP/SL Multipliers
-    head = (news_headline or "").lower()
-    cat = (catalyst_type or "").upper()
-
     tp = override_tp if override_tp is not None else base.tp_pct
     sl = override_sl if override_sl is not None else base.sl_pct
     trail_gap = base.trail_gap_pct
     trail_arm = base.trail_arm_pct
 
     # Tier-1 Mega Breakout Catalysts: Binance/Upbit listings, FDA approvals, blowout earnings, ETF approvals
-    if (
-        any(k in head for k in ["binance will list", "upbit will list", "bithumb will list", "fda approval", "fda approves", "etf approved", "sec approved", "breaks all-time", "massive beat", "record revenue"])
-        or cat in ["TIER_1_LISTING", "FDA_APPROVAL", "EARNINGS_SURPRISE", "MEGA_CATALYST"]
-    ):
+    if catalyst_class == "TIER1":
         tp = max(tp, 6.00 if sym in CRYPTO else 4.50)
         sl = max(sl, 2.20)
         trail_arm = max(trail_arm, 4.00)
         trail_gap = max(trail_gap, 1.80)
 
     # Macro & Central Bank Announcements: Fed rate cuts, CPI, NFP, GDP
-    elif (
-        any(k in head for k in ["fomc", "interest rate", "cpi", "inflation", "non-farm", "fed cuts", "ecb", "boj", "powell"])
-        or cat in ["MACRO", "CENTRAL_BANK", "CPI_INFLATION"]
-    ):
+    elif catalyst_class == "MACRO":
         if sym in FX or sym in INDEX:
             tp = max(tp, 0.90 if sym in FX else 1.80)
             sl = min(sl, 0.60 if sym in FX else 0.90)
@@ -80,10 +118,7 @@ def policy_for(
             trail_gap = 0.25 if sym in FX else 0.50
 
     # Partnership & Institutional Adoption
-    elif (
-        any(k in head for k in ["partnership", "partners with", "invests", "acquisition", "expands into", "integration", "mainnet"])
-        or cat in ["PARTNERSHIP", "ADOPTION", "MAINNET"]
-    ):
+    elif catalyst_class == "PARTNERSHIP":
         tp = max(tp, 4.00 if sym in CRYPTO else 2.80)
         sl = max(sl, 1.50)
         trail_arm = max(trail_arm, 2.50)

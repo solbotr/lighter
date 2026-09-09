@@ -17,18 +17,18 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from liquidation_hunter import (
+from quant_engines.liquidation_hunter import (
     LiquidationHunterEngine,
     LiquidationSide,
 )
 from dynamic_grid_mm import (
     DynamicGridMMEngine,
 )
-from stat_arb_pairs import (
+from quant_engines.stat_arb_pairs import (
     StatisticalArbitragePairEngine,
     PairAction,
 )
-from institutional_execution_algo import (
+from quant_engines.institutional_execution_algo import (
     InstitutionalExecutionEngine,
     ExecutionAlgoType,
 )

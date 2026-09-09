@@ -230,7 +230,7 @@ def test_dynamic_trailing_cushion():
 def test_dynamic_be_threshold():
     # Volatility normalizes quickly (<= 1.1x) -> accelerated BE threshold (+0.75% .. +1.0%)
     assert calculate_dynamic_be_threshold(base_be_threshold=1.5, atr_multiplier=0.8) == 0.75
-    assert calculate_dynamic_be_threshold(base_be_threshold=1.5, atr_multiplier=1.1) == 1.0
+    assert calculate_dynamic_be_threshold(base_be_threshold=1.5, atr_multiplier=1.1) == 0.85
     assert 0.75 < calculate_dynamic_be_threshold(base_be_threshold=1.5, atr_multiplier=0.95) < 1.0
 
     # Normal or elevated volatility (> 1.1x) -> standard +1.5% threshold

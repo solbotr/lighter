@@ -16,19 +16,19 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from vpin_toxicity_analyzer import (
+from quant_engines.vpin_toxicity_analyzer import (
     VPINToxicityAnalyzer,
     VPINMetrics,
 )
-from funding_borrow_optimizer import (
+from quant_engines.funding_borrow_optimizer import (
     FundingBorrowYieldOptimizer,
     NetYieldOpportunity,
 )
-from orderbook_cluster_heatmap import (
+from quant_engines.orderbook_cluster_heatmap import (
     OrderbookClusterEngine,
     OrderbookClusterSummary,
 )
-from emergency_evacuate import (
+from quant_engines.emergency_evacuate import (
     EmergencyFlashEvacuator,
     EvacuationAudit,
 )

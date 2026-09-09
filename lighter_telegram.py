@@ -951,6 +951,7 @@ class LighterTelegramBot:
                 f"• <code>/sl &lt;pct&gt;</code> (e.g. <code>/sl 1.5</code>) — Set Stop-Loss Guard\n\n"
                 f"📊 <b>ANALYTICS & PORTFOLIO:</b>\n"
                 f"• <code>/report</code> or <code>/pnl</code> — 24h Realized PnL, Win-Rate & Volume\n"
+                f"• <code>/attribution [hours]</code> — News source, catalyst & asset expectancy\n"
                 f"• <code>/balance</code> — Real zkLighter Subaccount Balances\n"
                 f"• <code>/status</code> — Live Engine State & System Vitality\n"
                 f"• <code>/chart &lt;ticker&gt;</code> (e.g. <code>/chart sol</code>) — Visual Target Chart Card\n"
@@ -1203,6 +1204,31 @@ class LighterTelegramBot:
                 db = LighterDBManager()
             stats = db.get_daily_stats()
             msg = format_daily_pnl_report(stats)
+            try:
+                from trade_ledger import TradeLedger, format_attribution_report
+                ledger = self.ctx.get("ledger") or TradeLedger(
+                    os.getenv("NEWS_DB_PATH", "lighter_news.db"))
+                msg += "\n\n" + format_attribution_report(
+                    ledger.attribution(time.time() - 24 * 3600), 24)
+            except Exception as ledger_err:
+                logger.debug("Attribution report unavailable: %s", ledger_err)
+            return msg, self.build_main_keyboard()
+
+        elif raw.startswith("/attribution") or raw.startswith("attribution"):
+            try:
+                parts = raw.split()
+                hours = float(parts[1]) if len(parts) > 1 else 24.0
+                hours = max(0.01, hours)
+                from trade_ledger import TradeLedger, format_attribution_report
+                ledger = self.ctx.get("ledger") or TradeLedger(
+                    os.getenv("NEWS_DB_PATH", "lighter_news.db"))
+                msg = format_attribution_report(
+                    ledger.attribution(time.time() - hours * 3600), hours)
+            except (ValueError, IndexError):
+                msg = "⚠️ Usage: <code>/attribution [hours]</code>"
+            except Exception as ledger_err:
+                logger.debug("Attribution report unavailable: %s", ledger_err)
+                msg = "⚠️ Attribution report is temporarily unavailable."
             return msg, self.build_main_keyboard()
 
         elif raw in ["/sources", "sources", "menu_sources"]:
@@ -2735,4 +2761,3 @@ if __name__ == "__main__":
         asyncio.run(bot.run_fast_polling())
     except KeyboardInterrupt:
         print("Telegram bot shutting down...")
-

@@ -39,6 +39,7 @@ from news_markets import MarketRegistry, TickerCache
 from news_lifecycle import PositionBook, PositionClock, TradeIntentQueue
 from news_observability import AuditLog, NewsMetrics
 from lighter_news_risk import LighterNewsRiskGate, MarketSnapshot, live_execution_allowed
+from trade_ledger import TradeLedger
 from treenews_ws import TreeNewsWebSocketClient
 from cross_exchange_momentum import CrossExchangeMomentumFilter, MomentumConfirmation
 from depth_vwap_engine import (
@@ -1288,6 +1289,53 @@ class MaxSizeExecutionEngine:
         last["detail"] = f"retries exhausted; local watchdog armed tp={pos.tp_price} sl={pos.sl_price}"
         return last
 
+    @staticmethod
+    def _close_if_unprotected_enabled() -> bool:
+        return os.getenv("NEWS_CLOSE_IF_UNPROTECTED", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+    async def _close_if_unprotected(
+        self,
+        pos: ActivePosition,
+        armed: Dict[str, Any],
+        *,
+        mark: Optional[float] = None,
+    ) -> bool:
+        """
+        If exchange TP+SL could not be attached after retries, flatten the position
+        (NEWS_CLOSE_IF_UNPROTECTED, default on). A news position that only has a local
+        watchdog is unprotected across process restarts / WS drops; a missed catalyst
+        costs far less than an unbounded loss. Returns True when the position was closed.
+        """
+        if bool(armed.get("tp")) and bool(armed.get("sl")):
+            return False
+        if not self._close_if_unprotected_enabled():
+            return False
+        if not self.is_live:
+            return False
+        price = float(mark or 0.0)
+        if price <= 0:
+            try:
+                snap = await self.fetch_market_snapshot(pos.asset, pos.market_index)
+                price = float(snap.price) if snap else 0.0
+            except Exception as se:
+                logger.warning("Unprotected-close price lookup failed for %s: %s", pos.asset, se)
+        if price <= 0:
+            price = float(pos.entry_price or 0.0)
+        logger.error(
+            "🚨 [UNPROTECTED→CLOSE] %s tp=%s sl=%s — flattening (NEWS_CLOSE_IF_UNPROTECTED=1)",
+            pos.asset, armed.get("tp"), armed.get("sl"),
+        )
+        try:
+            await self.cancel_open_orders(pos.market_index, [pos.tp_order_index, pos.sl_order_index])
+            closed = await self.close_position(pos, price)
+        except Exception as ce:
+            logger.error("Unprotected-close failed for %s: %s — local watchdog remains armed", pos.asset, ce)
+            return False
+        if closed:
+            pos.is_active = False
+            self.active_positions.pop(pos.position_id, None)
+        return bool(closed)
+
     async def enforce_exits_on_all_positions(self) -> Dict[str, int]:
         """Every tick: ensure every live position has TP+SL prices and exchange attaches."""
         summary = {"checked": 0, "armed": 0, "retried": 0, "missing_local": 0}
@@ -1596,9 +1644,11 @@ class MaxSizeExecutionEngine:
                     asset,
                 )
             try:
-                await self.arm_protective_exits(position, retries=int(os.getenv("PROTECT_ATTACH_RETRIES", "5")))
+                armed = await self.arm_protective_exits(position, retries=int(os.getenv("PROTECT_ATTACH_RETRIES", "5")))
             except Exception as pe:
                 logger.warning("Protective exits (async) failed for %s: %s", asset, pe)
+                armed = {"tp": False, "sl": False}
+            await self._close_if_unprotected(position, armed)
 
         if self._async_fill_confirm():
             position.entry_time = self.clock.remember(asset, position.entry_time)
@@ -1654,6 +1704,8 @@ class MaxSizeExecutionEngine:
         tp_price, sl_price = position.tp_price, position.sl_price
         protect = await self.arm_protective_exits(position)
         position.entry_time = self.clock.remember(asset, position.entry_time)
+        if await self._close_if_unprotected(position, protect, mark=current_market_price):
+            return {"success": False, "error": "closed: protective exits could not be attached", "asset": asset}
         from trade_exits import already_through_exit, infer_tp_hits, scaled_out_qty
         mark = current_market_price
         itm = already_through_exit(side_str, mark, tp_price, sl_price)
@@ -2425,6 +2477,7 @@ class LighterNewsSniperBot:
         self.reconciled = False
         from news_scoreboard import ShadowScoreboard
         self.scoreboard = ShadowScoreboard(self.db_path)
+        self.ledger = TradeLedger(self.db_path)
         self.news_manager.pipeline.on_correction = self._on_correction
 
         try:
@@ -2454,6 +2507,7 @@ class LighterNewsSniperBot:
                     "positions": self.positions,
                     "metrics": self.metrics,
                     "markets": self.markets,
+                    "ledger": self.ledger,
                 }
             )
         except Exception as tge:
@@ -2971,6 +3025,20 @@ class LighterNewsSniperBot:
             self.audit.emit("vetoed", event.event_id, reasons=decision.reasons)
             logger.warning("News signal vetoed: %s", "; ".join(decision.reasons))
             logger.info("🚫 [1st-News Guard] Duplicate/cooldown signal dropped silently: %s", "; ".join(decision.reasons))
+            if any("shadow only" in reason for reason in decision.reasons):
+                # Source not live-eligible (e.g. polled RSS): still measure it so the
+                # allowlist can be widened on evidence rather than guesswork.
+                try:
+                    from news_scoreboard import ShadowBet
+                    self.scoreboard.record(ShadowBet(
+                        bet_id=event.event_id + "_shadow", asset=market.symbol, side=side,
+                        event_type=event.event_type, headline=event.headline,
+                        entry_price=float(snapshot.price), created_at=time.time(),
+                        cluster_id=event.cluster_id,
+                    ))
+                    self.metrics.inc("shadow_only")
+                except Exception as se:
+                    logger.debug("shadow bet record failed for %s: %s", event.event_id, se)
             return
 
         if self.kill_engaged():
@@ -3009,6 +3077,30 @@ class LighterNewsSniperBot:
             self.positions.activate_from_fill(intent)
             self.news_risk_gate.record_fill(market.symbol)
             self.metrics.inc("filled_live")
+            try:
+                filled_at = time.time()
+                self.ledger.record_entry(
+                    trade_id=event.event_id,
+                    position_id=str(result.get("position_id") or intent.intent_id),
+                    asset=market.symbol,
+                    side=side,
+                    source_id=event.source_id,
+                    publisher=event.publisher,
+                    event_type=event.event_type,
+                    catalyst_headline=event.headline,
+                    confidence=event.confidence,
+                    published_at=event.published_at.timestamp() if event.published_at else None,
+                    ingested_at=event.ingested_at.timestamp(),
+                    decided_at=now,
+                    filled_at=filled_at,
+                    entry_price=float(result.get("entry_price") or snapshot.price),
+                    signal_price=float(snapshot.price),
+                    size=float(result.get("size_eth") or 0.0),
+                    notional_usd=float(result.get("notional_usd") or 0.0),
+                    taker_fee_bps=float(os.getenv("LIGHTER_TAKER_FEE_BPS", "0")),
+                )
+            except Exception as ledger_err:
+                logger.debug("Trade ledger entry failed: %s", ledger_err)
 
             # Attach catalyst headline & type directly to executor active position
             active_exec_pos = self.executor.existing_position(market.symbol, int(snapshot.market_index or market.market_index))
@@ -3230,6 +3322,17 @@ class LighterNewsSniperBot:
                     if book_pos:
                         self.positions.mark_exit(book_pos.position_id, ev["type"], ev["exit_price"], True)
                     self.news_risk_gate.record_pnl(float(ev.get("pnl_usd") or 0.0))
+                    try:
+                        self.ledger.record_exit(
+                            position_id=ev["pos_id"],
+                            exit_price=float(ev["exit_price"]),
+                            exit_qty=float(ev.get("close_qty") or pos.size_eth),
+                            exit_kind=ev["type"],
+                            exit_at=time.time(),
+                            taker_fee_bps=float(os.getenv("LIGHTER_TAKER_FEE_BPS", "0")),
+                        )
+                    except Exception as ledger_err:
+                        logger.debug("Trade ledger exit failed: %s", ledger_err)
                     from lighter_telegram import tg_send
                     from lighter_telegram import format_exit_card
                     tg_send(format_exit_card(ev, flat=exit_submitted))

@@ -117,8 +117,9 @@ def test_momentum_size_multiplier():
 
 
 @pytest.mark.asyncio
-async def test_risk_gate_integration_with_momentum_filter():
+async def test_risk_gate_integration_with_momentum_filter(monkeypatch):
     """Test LighterNewsRiskGate approves confirmed and blocks unconfirmed high-conviction events."""
+    monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "tree_news")  # fixture source is live-eligible
     risk_gate = LighterNewsRiskGate(live=False)
     momentum_filter = CrossExchangeMomentumFilter(min_spike_ratio=1.5, require_confirmation=True)
     risk_gate.momentum_filter = momentum_filter

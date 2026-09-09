@@ -17,19 +17,19 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from ws_auto_healing import (
+from quant_engines.ws_auto_healing import (
     WebSocketAutoHealingSupervisor,
     SocketHealthState,
 )
-from delta_hedger import (
+from quant_engines.delta_hedger import (
     AutonomousDeltaHedger,
     HedgeOrderRecord,
 )
-from volatility_forecaster import (
+from quant_engines.volatility_forecaster import (
     GARCHVolatilityForecaster,
     VolatilityForecast,
 )
-from capital_allocator import (
+from quant_engines.capital_allocator import (
     CapitalGrowthAllocator,
     CapitalTier,
 )

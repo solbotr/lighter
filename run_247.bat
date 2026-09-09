@@ -12,6 +12,7 @@ echo.
 cd /d "%~dp0"
 set PYTHONPATH=%~dp0
 set PYTHONUNBUFFERED=1
+rem Set MM_ENABLED=1 to enable the market-maker child process.
 
 if exist "C:\Program Files\Python312\python.exe" (
   "C:\Program Files\Python312\python.exe" -u "%~dp0watchdog_supervisor.py"

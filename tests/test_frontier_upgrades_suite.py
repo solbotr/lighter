@@ -15,15 +15,15 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from genetic_optimizer import (
+from quant_engines.genetic_optimizer import (
     GeneticStrategyOptimizer,
     StrategyGenome,
 )
-from smart_order_router import (
+from quant_engines.smart_order_router import (
     CrossDEXSmartOrderRouter,
     RoutedOrderPlan,
 )
-from mev_gas_accelerator import (
+from quant_engines.mev_gas_accelerator import (
     DynamicMempoolGasAccelerator,
     DynamicGasPricing,
 )

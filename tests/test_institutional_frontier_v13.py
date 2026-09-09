@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from microstructure_invariance import MicrostructureInvarianceEngine
-from garman_klass_volatility import GarmanKlassVolatilityEstimator, OHLCBar
-from inventory_convexity_skew import InventoryConvexitySkewEngine
-from funding_jump_diffusion import FundingJumpDiffusionPredictor
-from l2_proof_drift_detector import L2ProofDriftDetector
+from quant_engines.microstructure_invariance import MicrostructureInvarianceEngine
+from quant_engines.garman_klass_volatility import GarmanKlassVolatilityEstimator, OHLCBar
+from quant_engines.inventory_convexity_skew import InventoryConvexitySkewEngine
+from quant_engines.funding_jump_diffusion import FundingJumpDiffusionPredictor
+from quant_engines.l2_proof_drift_detector import L2ProofDriftDetector
 
 
 def test_microstructure_invariance():

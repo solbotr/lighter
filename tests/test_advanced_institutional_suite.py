@@ -18,20 +18,20 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from internal_basis_arbitrage import (
+from quant_engines.internal_basis_arbitrage import (
     BasisDirection,
     BasisOpportunity,
     InternalBasisArbitrageEngine,
 )
-from whale_orderbook_shadow import (
+from quant_engines.whale_orderbook_shadow import (
     WhaleOrderBookShadowEngine,
     WallSide,
 )
-from self_learning_catalyst import (
+from quant_engines.self_learning_catalyst import (
     SelfLearningCatalystEngine,
     TradeOutcome,
 )
-from profit_sweeper_vault import (
+from quant_engines.profit_sweeper_vault import (
     ProfitSweeperVaultManager,
 )
 from redundant_failover_node import (

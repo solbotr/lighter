@@ -142,6 +142,19 @@ class LighterNewsRiskGate:
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
         self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
+        self.max_open_positions = int(os.getenv("NEWS_MAX_CONCURRENCY", "6"))
+        self.max_gross_leverage = float(os.getenv("NEWS_MAX_GROSS_LEVERAGE", "1.5"))
+        self.live_source_ids = {
+            source.strip().lower()
+            for source in os.getenv("NEWS_LIVE_SOURCE_IDS", "").split(",")
+            if source.strip()
+        }
+        self.live_source_adapters = {
+            adapter.strip().lower()
+            for adapter in os.getenv("NEWS_LIVE_SOURCE_ADAPTERS", "treenews_ws,webhook,official,x").split(",")
+            if adapter.strip()
+        }
+        self.max_feed_latency_sec = float(os.getenv("NEWS_MAX_FEED_LATENCY_SEC", "20"))
         self._reserved_usd = 0.0
         self._reservations: Dict[str, float] = {}
         self._asset_reserved: Dict[str, float] = {}
@@ -177,6 +190,20 @@ class LighterNewsRiskGate:
         risk_budget = collateral_usd * (self.risk_per_trade_pct / 100.0)
         sized = risk_budget / (stop_distance_pct / 100.0)
         return round(max(0.0, min(requested_usd, self.max_trade_usd, sized)), 4)
+
+    def source_is_live_eligible(self, event: NormalizedNewsEvent) -> tuple[bool, str]:
+        """Return whether an event is sufficiently fast and from a live source."""
+        if event.published_at is not None and event.ingested_at is not None:
+            latency = (event.ingested_at - event.published_at).total_seconds()
+            if latency > self.max_feed_latency_sec:
+                return False, f"feed latency {latency:.0f}s exceeds NEWS_MAX_FEED_LATENCY_SEC"
+
+        source_id = (event.source_id or "").lower()
+        adapter = str((event.raw or {}).get("adapter", "")).lower()
+        allowlists_disabled = not self.live_source_ids and not self.live_source_adapters
+        if allowlists_disabled or source_id in self.live_source_ids or adapter in self.live_source_adapters:
+            return True, ""
+        return False, "source not in live allowlist (shadow only)"
 
     async def approve(
         self,
@@ -219,6 +246,10 @@ class LighterNewsRiskGate:
         if adverse_taker_ratio >= float(os.getenv("NEWS_MAX_TOXIC_FLOW_RATIO", "0.70")):
             reasons.append(f"toxic order flow veto: adverse taker volume {adverse_taker_ratio*100:.1f}% >= 70%")
         if not manual:
+            if event is not None:
+                source_eligible, source_reason = self.source_is_live_eligible(event)
+                if not source_eligible:
+                    reasons.append(source_reason)
             ok, veto_reason = quality_veto(event)
             if not ok:
                 reasons.append(veto_reason)
@@ -260,6 +291,29 @@ class LighterNewsRiskGate:
         symbol = (asset or (snapshot.asset if snapshot else "")).upper()
         direction = "long" if side.startswith("BUY") else "short" if side.startswith("SELL") else "flat"
         async with self._lock:
+            open_notional_total = 0.0
+            open_notional_by_asset: Dict[str, float] = {}
+            open_notional_by_direction: Dict[str, float] = {"long": 0.0, "short": 0.0}
+            open_count = 0
+            positions = active_positions.values() if isinstance(active_positions, dict) else (active_positions or ())
+            for position in positions:
+                def value(name: str, default: Any = None) -> Any:
+                    return position.get(name, default) if isinstance(position, dict) else getattr(position, name, default)
+
+                if not value("is_active", True):
+                    continue
+                notional = abs(float(value("notional_usd", 0.0) or 0.0))
+                if notional <= 0:
+                    notional = abs(float(value("size_eth", 0.0) or 0.0)) * float(value("entry_price", 0.0) or 0.0)
+                position_asset = str(value("asset", value("symbol", "")) or "").upper()
+                position_side = str(value("side", "") or "").upper()
+                position_direction = "long" if position_side.startswith(("BUY", "LONG")) else "short" if position_side.startswith(("SELL", "SHORT")) else "flat"
+                open_count += 1
+                open_notional_total += notional
+                if position_asset:
+                    open_notional_by_asset[position_asset] = open_notional_by_asset.get(position_asset, 0.0) + notional
+                if position_direction != "flat":
+                    open_notional_by_direction[position_direction] += notional
             if self._session_trades >= self.max_session_trades:
                 reasons.append("session trade-count breaker")
             if self._consecutive_losses >= self.max_consecutive_losses:
@@ -279,12 +333,16 @@ class LighterNewsRiskGate:
             )
             if symbol and (is_open or (time.time() - last < self.cooldown_seconds)):
                 reasons.append("duplicate news signal: active position or cooldown in effect")
-            if self._reserved_usd + sized > self.max_exposure_usd:
+            if open_count >= self.max_open_positions:
+                reasons.append("max concurrent positions reached")
+            if self._reserved_usd + open_notional_total + sized > self.max_exposure_usd:
                 reasons.append("aggregate news exposure cap reached")
-            if symbol and self._asset_reserved.get(symbol, 0.0) + sized > self.max_asset_usd:
+            if symbol and self._asset_reserved.get(symbol, 0.0) + open_notional_by_asset.get(symbol, 0.0) + sized > self.max_asset_usd:
                 reasons.append("per-asset exposure cap reached")
-            if direction != "flat" and self._directional_reserved.get(direction, 0.0) + sized > self.max_directional_usd:
+            if direction != "flat" and self._directional_reserved.get(direction, 0.0) + open_notional_by_direction[direction] + sized > self.max_directional_usd:
                 reasons.append("directional exposure cap reached")
+            if collateral_usd is not None and collateral_usd > 0 and (open_notional_total + self._reserved_usd + sized) / collateral_usd > self.max_gross_leverage:
+                reasons.append("gross leverage cap reached")
             if reasons:
                 return RiskDecision(False, tuple(reasons), sized_usd=sized)
             reservation_id = f"news_res_{int(time.time() * 1000)}"

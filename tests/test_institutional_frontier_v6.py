@@ -17,19 +17,19 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from delta_neutral_basis_vault import (
+from quant_engines.delta_neutral_basis_vault import (
     DeltaNeutralBasisVault,
     BasisVaultState,
 )
-from order_flow_imbalance_engine import (
+from quant_engines.order_flow_imbalance_engine import (
     MicrosecondOFIPredictor,
     OFIPrediction,
 )
-from triangular_arbitrage_engine import (
+from quant_engines.triangular_arbitrage_engine import (
     TriangularArbitrageEngine,
     TriangularArbCycle,
 )
-from tick_execution_replay import (
+from quant_engines.tick_execution_replay import (
     TickExecutionReplayer,
     ReplaySimulationResult,
 )

@@ -23,16 +23,16 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from as_inventory_skew import ASInventorySkewEngine, ASQuotingParameters
-from micro_burst_protector import MicroBurstProtector, MicroBurstAlert
-from funding_rate_forecaster import FundingRateForecaster, FundingForecast
-from hidden_wall_shadow import HiddenWallShadowEngine, IcebergOrderDetection
-from mesh_rebalancer import AutonomousMeshRebalancer, MeshBalanceStatus
-from trend_confluence_engine import TrendConfluenceEngine, TrendConfluenceResult
-from kelly_drawdown_sizer import AdaptiveKellyDrawdownSizer, KellySizingRecommendation
-from execution_impact_minimizer import AlmgrenChrissImpactMinimizer, OptimalExecutionTrajectory
-from institutional_circuit_breaker import InstitutionalCircuitBreaker, CircuitBreakerStatus
-from telemetry_health_exporter import TelemetryHealthExporter, HealthTelemetrySnapshot
+from quant_engines.as_inventory_skew import ASInventorySkewEngine, ASQuotingParameters
+from quant_engines.micro_burst_protector import MicroBurstProtector, MicroBurstAlert
+from quant_engines.funding_rate_forecaster import FundingRateForecaster, FundingForecast
+from quant_engines.hidden_wall_shadow import HiddenWallShadowEngine, IcebergOrderDetection
+from quant_engines.mesh_rebalancer import AutonomousMeshRebalancer, MeshBalanceStatus
+from quant_engines.trend_confluence_engine import TrendConfluenceEngine, TrendConfluenceResult
+from quant_engines.kelly_drawdown_sizer import AdaptiveKellyDrawdownSizer, KellySizingRecommendation
+from quant_engines.execution_impact_minimizer import AlmgrenChrissImpactMinimizer, OptimalExecutionTrajectory
+from quant_engines.institutional_circuit_breaker import InstitutionalCircuitBreaker, CircuitBreakerStatus
+from quant_engines.telemetry_health_exporter import TelemetryHealthExporter, HealthTelemetrySnapshot
 
 
 # =============================================================================

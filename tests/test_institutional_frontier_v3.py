@@ -20,11 +20,11 @@ from latency_arbitrage_engine import (
     LatencyLeadArbitrageEngine,
     LatencyArbSignal,
 )
-from liquidation_cascade_predictor import (
+from quant_engines.liquidation_cascade_predictor import (
     LiquidationCascadePredictor,
     CascadeReboundSetup,
 )
-from compound_reinvestment_engine import (
+from quant_engines.compound_reinvestment_engine import (
     DynamicCompoundingOptimizer,
     ReinvestmentSplit,
 )

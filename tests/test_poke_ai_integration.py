@@ -27,7 +27,7 @@ def test_strip_html_tags():
 
 
 def test_poke_send_enqueues_message():
-    with patch("poke_notifier._ensure_worker_started"):
+    with patch("poke_notifier._ensure_worker_started"), patch.dict(os.environ, {"POKE_API_KEY": "test-key"}):
         # Drain queue first
         while not _POKE_QUEUE.empty():
             try:

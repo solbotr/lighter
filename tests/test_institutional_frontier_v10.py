@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from asymmetric_quoting_engine import AsymmetricQuotingEngine
-from microstructure_hmm import MicrostructureHMMClassifier, MarketRegimeState
-from anchored_vwap_profile import AnchoredVWAPProfileEngine
-from synthetic_basis_carry import SyntheticBasisCarryOptimizer
-from sequencer_lag_detector import RollupSequencerLagDetector
+from quant_engines.asymmetric_quoting_engine import AsymmetricQuotingEngine
+from quant_engines.microstructure_hmm import MicrostructureHMMClassifier, MarketRegimeState
+from quant_engines.anchored_vwap_profile import AnchoredVWAPProfileEngine
+from quant_engines.synthetic_basis_carry import SyntheticBasisCarryOptimizer
+from quant_engines.sequencer_lag_detector import RollupSequencerLagDetector
 
 
 def test_asymmetric_quoting_inventory_skew():

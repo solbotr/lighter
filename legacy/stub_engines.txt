@@ -4,25 +4,25 @@ These modules exist for institutional/quant branding or offline research.
 MasterProfitOrchestrator may register them lazily; they are not required
 for lighter_news_sniper orderbook / news / execution loops.
 
-zkrollup_mempool_arb_frontrunner.py     — ZkRollupMempoolArbFrontrunner (stub L2 mempool arb)
-mev_sandwich_decoy_emitter.py          — MEVSandwichDecoyEmitter (decoy / adversary poison stub)
-mev_gas_accelerator.py                 — DynamicMempoolGasAccelerator (gas tip stub)
-master_institutional_quant_nexus.py    — MasterInstitutionalQuantNexus (telemetry aggregator only)
-nonce_ahead_accelerator.py             — RollupNonceAheadAccelerator
+quant_engines/zkrollup_mempool_arb_frontrunner.py     — ZkRollupMempoolArbFrontrunner (stub L2 mempool arb)
+quant_engines/mev_sandwich_decoy_emitter.py          — MEVSandwichDecoyEmitter (decoy / adversary poison stub)
+quant_engines/mev_gas_accelerator.py                 — DynamicMempoolGasAccelerator (gas tip stub)
+quant_engines/master_institutional_quant_nexus.py    — MasterInstitutionalQuantNexus (telemetry aggregator only)
+quant_engines/nonce_ahead_accelerator.py             — RollupNonceAheadAccelerator
 l2_proof_drift_detector.py             — L2ProofDriftDetector
-rollup_pga_sizer.py                    — RollupPGASizerEngine
-graph_diffusion_alpha.py               — CrossAssetGraphDiffusionNetwork
-heston_volatility_surface.py           — HestonVolatilitySurfaceCalibrator
-markov_jump_copula.py                  — MarkovJumpCopulaEngine
-black_litterman_news_bayesian.py       — BlackLittermanNewsBayesianEngine
-disaster_recovery_vault.py             — DisasterRecoveryVault
-synthetic_dark_aggregator.py           — SyntheticDarkLiquidityAggregator
-cross_market_liquidity_transport.py    — CrossMarketLiquidityTransportEngine
-cross_chain_liquidity_bridger.py       — CrossChainLiquidityBridger
-gas_congestion_arbitrageur.py          — L2GasCongestionArbitrageur
-tick_execution_replay.py               — TickExecutionReplayer
-performance_attribution_deck.py        — PerformanceAttributionEngine
-telemetry_health_exporter.py           — TelemetryHealthExporter
+quant_engines/rollup_pga_sizer.py                    — RollupPGASizerEngine
+quant_engines/graph_diffusion_alpha.py               — CrossAssetGraphDiffusionNetwork
+quant_engines/heston_volatility_surface.py           — HestonVolatilitySurfaceCalibrator
+quant_engines/markov_jump_copula.py                  — MarkovJumpCopulaEngine
+quant_engines/black_litterman_news_bayesian.py       — BlackLittermanNewsBayesianEngine
+quant_engines/disaster_recovery_vault.py             — DisasterRecoveryVault
+quant_engines/synthetic_dark_aggregator.py           — SyntheticDarkLiquidityAggregator
+quant_engines/cross_market_liquidity_transport.py    — CrossMarketLiquidityTransportEngine
+quant_engines/cross_chain_liquidity_bridger.py       — CrossChainLiquidityBridger
+quant_engines/gas_congestion_arbitrageur.py          — L2GasCongestionArbitrageur
+quant_engines/tick_execution_replay.py               — TickExecutionReplayer
+quant_engines/performance_attribution_deck.py        — PerformanceAttributionEngine
+quant_engines/telemetry_health_exporter.py           — TelemetryHealthExporter
 
 Orchestrator lazy attrs (stubs / off hot-path unless explicitly accessed):
   zk_mempool_arb, decoy_emitter, mev_accelerator, quant_nexus,

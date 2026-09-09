@@ -124,9 +124,9 @@ class LighterMarketMakerBot:
         self.risk_manager = LighterRiskManager(limits=limits)
 
         # 4. Initialize Execution Engine
-        account_idx = int(os.getenv("LIGHTER_ACCOUNT_INDEX", "0"))
-        api_key_idx = int(os.getenv("LIGHTER_API_KEY_INDEX", "2"))
-        private_key = os.getenv("LIGHTER_API_PRIVATE_KEY", "")
+        account_idx = int(os.getenv("LIGHTER_MM_ACCOUNT_INDEX") or os.getenv("LIGHTER_ACCOUNT_INDEX", "0"))
+        api_key_idx = int(os.getenv("LIGHTER_MM_API_KEY_INDEX") or os.getenv("LIGHTER_API_KEY_INDEX") or "2")
+        private_key = os.getenv("LIGHTER_MM_API_PRIVATE_KEY") or os.getenv("LIGHTER_API_PRIVATE_KEY", "")
         base_url = os.getenv("LIGHTER_BASE_URL", "https://mainnet.zklighter.elliot.ai")
 
         self.execution = LighterExecutionEngine(
@@ -1112,6 +1112,7 @@ def parse_args():
     parser.add_argument("--size", type=float, default=float(os.getenv("BASE_ORDER_SIZE", "0.05")), help="Base order size in units")
     parser.add_argument("--spread", type=float, default=float(os.getenv("TARGET_SPREAD_BPS", "2.0")), help="Target half spread in bps")
     parser.add_argument("--layers", type=int, default=int(os.getenv("NUM_LAYERS", "3")), help="Number of quoting grid tiers")
+    parser.add_argument("--db-path", default=None, help="SQLite database path (default: LIGHTER_MM_DB_PATH or lighter_mm.db)")
     parser.add_argument("--no-telegram", action="store_true", help="Disable Telegram bot integration")
     parser.add_argument("--no-hybrid", action="store_true", help="Disable Hybrid instant catalyst switch engine")
     return parser.parse_args()
@@ -1120,12 +1121,15 @@ def parse_args():
 def main():
     args = parse_args()
 
+    telegram_enabled = os.getenv("MM_ENABLE_TELEGRAM", "0").strip().lower() in ("1", "true", "yes", "on")
+
     bot = LighterMarketMakerBot(
         market_index=args.market,
         base_size=args.size,
         target_spread_bps=args.spread,
         num_layers=args.layers,
-        enable_telegram=not args.no_telegram,
+        db_path=args.db_path or os.getenv("LIGHTER_MM_DB_PATH", "lighter_mm.db"),
+        enable_telegram=(not args.no_telegram) and telegram_enabled,
         enable_hybrid=not args.no_hybrid,
     )
 

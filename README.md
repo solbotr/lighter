@@ -1,18 +1,18 @@
 # 🏛️ Lighter & Hyperliquid Institutional Trading Bot
 
-> **High-Performance Multi-DEX Algorithmic Trading, News Catalyst Sniping, 0-Fee Market Making, and Risk-Managed Execution.**
+> **Multi-DEX algorithmic trading: news catalyst sniping (live), Avellaneda-Stoikov market making (opt-in), and risk-managed execution.**
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
 ![zkLighter](https://img.shields.io/badge/DEX-zkLighter%20Mainnet-purple.svg)
 ![Hyperliquid](https://img.shields.io/badge/DEX-Hyperliquid%20L1-green.svg)
-![Tests](https://img.shields.io/badge/Tests-325%2F325%20Passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/Tests-394%20Passing-brightgreen.svg)
 ![Status](https://img.shields.io/badge/Status-24%2F7%20Live%20Production-success.svg)
 
 ---
 
 ## 📑 Overview
 
-This repository houses an institutional-grade, multi-venue algorithmic trading architecture designed for **zkLighter Mainnet CLOB** and **Hyperliquid L1 Perps & Spot**. It combines sub-15ms news ingestion, 0-fee market making quoting, cross-exchange price-lag arbitrage, on-chain whale copy-trading, and multi-stage risk management ladders with 24/7 self-healing VPS supervision.
+This repository houses an institutional-grade, multi-venue algorithmic trading architecture designed for **zkLighter Mainnet CLOB** and **Hyperliquid L1 Perps & Spot**. It combines fast news ingestion (TreeNews WebSocket live; polled RSS shadow-only), an opt-in Avellaneda-Stoikov market maker (0 bps on a Standard-tier subaccount), and multi-stage risk management with 24/7 self-healing VPS supervision.
 
 ---
 
@@ -28,7 +28,7 @@ This repository houses an institutional-grade, multi-venue algorithmic trading a
 
 ## 🧩 Subaccount Sharding Architecture
 
-To eliminate strategy interference and isolate margin risks, capital is partitioned into 3 specialized subaccount shards:
+Target layout (only Shard 1 runs by default; Shard 2 starts when `MM_ENABLED=1`, Shard 3 is not wired to any process):
 
 1. **Shard 1 (`#737649`) — Catalyst Sniper & Copilot**:
    - Sub-15ms execution on breaking news events.
@@ -144,15 +144,23 @@ Full remote control from mobile Telegram:
 
 ## 🧪 Testing & Verification
 
-Run the full 325-test unit and integration test suite:
-
 ```bash
-pytest tests/ -v
+python3 -m pytest tests/ -q
 ```
 
 ```text
-====================== 325 passed in 18.25s (100% Pass Rate) ======================
+394 passed in ~9s
 ```
+
+## 🛠️ What actually runs (read this before trusting the marketing above)
+
+- **Production entrypoint** is `watchdog_supervisor.py` (run_247.bat / Dockerfile). It always runs `lighter_news_sniper.py`; it runs `lighter_mm_bot.py` only when `MM_ENABLED=1` (see `MM_DEPLOY.md`).
+- **Fees**: Lighter Standard tier is 0/0 bps (300 ms), Premium is 0.4 bps maker / 2.8 bps taker (200 ms). The market maker is only "0-fee" on a Standard-tier subaccount. `LIGHTER_TIER` in `.env` is for the sniper account.
+- **Live news sources**: only adapters in `NEWS_LIVE_SOURCE_ADAPTERS` (default `treenews_ws,webhook,official,x`) or IDs in `NEWS_LIVE_SOURCE_IDS` can open positions. Polled RSS/Google News headlines are recorded as shadow bets on the scoreboard so their edge can be measured before enabling them.
+- **Risk caps** (`lighter_news_risk.py`): `NEWS_MAX_EXPOSURE_USD`, `NEWS_MAX_ASSET_EXPOSURE_USD`, `NEWS_MAX_CONCURRENCY`, `NEWS_MAX_GROSS_LEVERAGE` count *open* positions, not just in-flight orders.
+- **Exits** (`trade_exits.py`): catalyst-class time stops (Tier-1 listing 240 min, macro 90, partnership 120, other 60). A live position whose exchange TP+SL cannot be attached is flattened (`NEWS_CLOSE_IF_UNPROTECTED=1`).
+- **P&L attribution**: every entry/exit lands in `trade_ledger.py`; `/report` and `/attribution [hours]` in Telegram show P&L by source, catalyst type and exit reason.
+- **`quant_engines/`** holds ~100 research engines used only by `master_profit_orchestrator.py` telemetry (`/orchestrator`). None of them are on the trade path.
 
 ---
 

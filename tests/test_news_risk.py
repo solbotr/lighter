@@ -15,7 +15,7 @@ def event(confidence=0.9):
         event_id="event-1", source_id="source", publisher="Source", headline="Binance lists ETH", body="official listing",
         url="https://example.test", guid="g", published_at=now, ingested_at=now, source_score=0.9,
         category="official", content_hash="hash", entities=("ETH",), event_type="listing", direction="BULLISH",
-        confidence=confidence, materiality=0.8,
+        confidence=confidence, materiality=0.8, raw={"adapter": "treenews_ws"},
     )
 
 

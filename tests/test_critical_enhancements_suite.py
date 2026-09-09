@@ -17,14 +17,14 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from cython_fast_signer import (
+from quant_engines.cython_fast_signer import (
     UltraFastSignerEngine,
 )
 from profit_harvesting_daemon import (
     AutonomousProfitHarvestingDaemon,
     HarvestExecution,
 )
-from cex_flow_predetector import (
+from quant_engines.cex_flow_predetector import (
     CEXFlowPreDetector,
     VolumeSweepAlert,
 )

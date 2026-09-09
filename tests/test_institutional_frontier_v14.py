@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from queue_priority_estimator import OrderbookQueuePriorityEstimator
-from lee_ready_trade_classifier import LeeReadyTradeClassifier
-from volatility_cone_grid import VolatilityConeGridEngine
-from liquidation_frontrunner import LiquidationCascadeFrontrunner
-from trailing_ratchet_vault import TrailingRatchetVault
+from quant_engines.queue_priority_estimator import OrderbookQueuePriorityEstimator
+from quant_engines.lee_ready_trade_classifier import LeeReadyTradeClassifier
+from quant_engines.volatility_cone_grid import VolatilityConeGridEngine
+from quant_engines.liquidation_frontrunner import LiquidationCascadeFrontrunner
+from quant_engines.trailing_ratchet_vault import TrailingRatchetVault
 
 
 def test_queue_priority_and_fill_estimator():

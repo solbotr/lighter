@@ -31,170 +31,64 @@ subaccount shards on zkLighter and Hyperliquid:
 from __future__ import annotations
 
 import asyncio
+import ast
+import importlib
 import logging
 import math
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from subaccount_manager import (
     SubaccountManager,
     SubaccountRole,
-    SubaccountProfile,
-    SubaccountState,
-)
-from internal_basis_arbitrage import (
-    InternalBasisArbitrageEngine,
-    BasisOpportunity,
-    ActiveBasisPosition,
-)
-from funding_arbitrage import (
-    DeltaNeutralFundingHarvester,
-    FundingArbOpportunity,
-    DeltaNeutralArbPosition,
-    FundingArbitrageConfig,
-)
-from whale_orderbook_shadow import (
-    WhaleOrderBookShadowEngine,
-    WhaleShadowSetup,
-)
-from liquidation_hunter import (
-    LiquidationHunterEngine,
-    LiquidationSide,
-    LiquidationSnipeOrder,
-)
-from dynamic_grid_mm import (
-    DynamicGridMMEngine,
-    GridState,
-)
-from stat_arb_pairs import (
-    StatisticalArbitragePairEngine,
-    PairOpportunity,
-    ActivePairPosition,
-)
-from self_learning_catalyst import (
-    SelfLearningCatalystEngine,
-    TradeOutcome,
-)
-from strategy_circuit_backup import global_strategy_circuit_backup, StrategyCircuitBackupManager
-from profit_sweeper_vault import (
-    ProfitSweeperVaultManager,
-    SweepRecord,
-)
-from institutional_execution_algo import (
-    InstitutionalExecutionEngine,
-    ExecutionPlan,
 )
 from anti_toxic_guard import (
     AntiToxicMMGuard,
     AntiToxicGuardConfig,
 )
-from volatility_adaptive_exits import (
-    VolatilityAdaptiveExitEngine,
-    get_volatility_engine,
+
+if TYPE_CHECKING:
+    from quant_engines.profit_sweeper_vault import SweepRecord
+    from subaccount_manager import SubaccountProfile
+
+
+_ROOT_LAZY_MODULES = (
+    "funding_arbitrage", "dynamic_grid_mm", "multi_market_grid_quoter",
+    "profit_harvesting_daemon", "volatility_adaptive_exits",
+    "latency_arbitrage_engine", "intraday_seasonality_profile",
 )
-from profit_harvesting_daemon import AutonomousProfitHarvestingDaemon
-from capital_allocator import CapitalGrowthAllocator
-from multi_market_grid_quoter import MultiMarketGridQuoterEngine
-from delta_hedger import AutonomousDeltaHedger
-from ws_auto_healing import WebSocketAutoHealingSupervisor
-from volatility_forecaster import GARCHVolatilityForecaster
-from microstructure_entry_filter import MicrostructureEntryFilter
-from advanced_tpsl_engine import AdvancedTPSLEngine
-from cython_fast_signer import UltraFastSignerEngine
-from cex_flow_predetector import CEXFlowPreDetector
-from macro_onchain_sources import MacroOnChainSourcesEngine
-from genetic_optimizer import GeneticStrategyOptimizer
-from smart_order_router import CrossDEXSmartOrderRouter
-from mev_gas_accelerator import DynamicMempoolGasAccelerator
-from vpin_toxicity_analyzer import VPINToxicityAnalyzer
-from funding_borrow_optimizer import FundingBorrowYieldOptimizer
-from orderbook_cluster_heatmap import OrderbookClusterEngine
-from emergency_evacuate import EmergencyFlashEvacuator
-from latency_arbitrage_engine import LatencyLeadArbitrageEngine
-from liquidation_cascade_predictor import LiquidationCascadePredictor
-from compound_reinvestment_engine import DynamicCompoundingOptimizer
-from spoofing_detector import HFTSpoofingDetector
-from monte_carlo_var_simulator import MonteCarloRiskSimulator
-from cross_chain_liquidity_bridger import CrossChainLiquidityBridger
-from vip_tg_twitter_broadcaster import VIPSignalBroadcaster
-from heartbeat_deadmans_switch import DeadMansHeartbeatSwitch
-from gas_congestion_arbitrageur import L2GasCongestionArbitrageur
-from basket_cointegration_engine import BasketCointegrationEngine
-from performance_attribution_deck import PerformanceAttributionEngine
-from delta_neutral_basis_vault import DeltaNeutralBasisVault
-from order_flow_imbalance_engine import MicrosecondOFIPredictor
-from triangular_arbitrage_engine import TriangularArbitrageEngine
-from tick_execution_replay import TickExecutionReplayer
-from as_inventory_skew import ASInventorySkewEngine
-from micro_burst_protector import MicroBurstProtector
-from funding_rate_forecaster import FundingRateForecaster
-from hidden_wall_shadow import HiddenWallShadowEngine
-from mesh_rebalancer import AutonomousMeshRebalancer
-from trend_confluence_engine import TrendConfluenceEngine
-from kelly_drawdown_sizer import AdaptiveKellyDrawdownSizer
-from execution_impact_minimizer import AlmgrenChrissImpactMinimizer
-from institutional_circuit_breaker import InstitutionalCircuitBreaker
-from telemetry_health_exporter import TelemetryHealthExporter
+_SYMBOL_MODULES: Dict[str, str] = {"get_volatility_engine": "volatility_adaptive_exits"}
 
-# Phase 15 to Phase 25 Institutional Quant Engines
-from asymmetric_quoting_engine import AsymmetricQuotingEngine
-from microstructure_hmm import MicrostructureHMMClassifier
-from anchored_vwap_profile import AnchoredVWAPProfileEngine
-from synthetic_basis_carry import SyntheticBasisCarryOptimizer
-from sequencer_lag_detector import RollupSequencerLagDetector
-from kyles_lambda_impact import KylesLambdaImpactEstimator
-from kalman_fair_value import KalmanFairValueTracker
-from liquidity_wall_sweeper import LiquidityWallBreakoutSweeper
-from granger_causality_network import GrangerCausalityNetwork
-from drawdown_brake_vault import DrawdownBrakeVault
-from almgren_chriss_execution import AlmgrenChrissExecutionEngine
-from roll_effective_spread import RollEffectiveSpreadEngine
-from dynamic_beta_hedger import DynamicBetaHedger
-from entropy_signal_combiner import EntropySignalCombiner
-from nonce_ahead_accelerator import RollupNonceAheadAccelerator
-from microstructure_invariance import MicrostructureInvarianceEngine
-from garman_klass_volatility import GarmanKlassVolatilityEstimator
-from inventory_convexity_skew import InventoryConvexitySkewEngine
-from funding_jump_diffusion import FundingJumpDiffusionPredictor
-from l2_proof_drift_detector import L2ProofDriftDetector
-from queue_priority_estimator import OrderbookQueuePriorityEstimator
-from lee_ready_trade_classifier import LeeReadyTradeClassifier
-from volatility_cone_grid import VolatilityConeGridEngine
-from liquidation_frontrunner import LiquidationCascadeFrontrunner
-from trailing_ratchet_vault import TrailingRatchetVault
-from fourier_orderbook_oscillator import FourierOrderbookOscillator
-from ledoit_wolf_risk_parity import LedoitWolfRiskParityOptimizer
-from liquidity_evaporation_radar import LiquidityEvaporationRadar
-from vpj_crash_shield import VolumeSynchronizedJumpCrashShield
-from subaccount_rebalance_pipeline import SubaccountRebalancePipeline
-from native_fast_ring_buffer import NativeFastRingBuffer
-from graph_diffusion_alpha import CrossAssetGraphDiffusionNetwork
-from heston_volatility_surface import HestonVolatilitySurfaceCalibrator
-from synthetic_dark_aggregator import SyntheticDarkLiquidityAggregator
-from disaster_recovery_vault import DisasterRecoveryVault
-from quadratic_ofi_curvature import QuadraticOFICurvatureEngine
-from markov_jump_copula import MarkovJumpCopulaEngine
-from liquidity_vacuum_absorber import LiquidityVacuumAbsorberEngine
-from alpha_decay_predictor import AlphaDecayPredictorEngine
-from rollup_pga_sizer import RollupPGASizerEngine
-from microstructure_noise_subsampler import MicrostructureNoiseSubsampler
-from cross_orderbook_entropy_flow import CrossOrderbookEntropyFlowEngine
-from stochastic_spread_intensity import StochasticSpreadIntensityEngine
-from mev_sandwich_decoy_emitter import MEVSandwichDecoyEmitter
-from cross_market_liquidity_transport import CrossMarketLiquidityTransportEngine
-from black_litterman_news_bayesian import BlackLittermanNewsBayesianEngine
-from intraday_seasonality_profile import IntradaySeasonalityProfileEngine
-from dynamic_kelly_fractional_compounder import DynamicKellyFractionalCompounder
-from stochastic_inventory_barrier_exit import StochasticInventoryBarrierExitEngine
-from zkrollup_mempool_arb_frontrunner import ZkRollupMempoolArbFrontrunner
-from master_institutional_quant_nexus import MasterInstitutionalQuantNexus
 
-# Phase 26 Multi-Position Concurrency & Profit Maximizers
-from multi_position_concurrency_engine import MultiPositionConcurrencyEngine
-from asymmetric_tp_maximizer import AsymmetricTPMaximizer
-from momentum_pyramid_scaler import MomentumPyramidScaler
+def _index_lazy_symbols() -> None:
+    """Build a class/function index without importing any engine module."""
+    roots = [(Path(__file__).parent / "quant_engines", "quant_engines")]
+    roots.extend((Path(__file__).parent / f"{module}.py", module) for module in _ROOT_LAZY_MODULES)
+    for path, package in roots:
+        files = path.glob("*.py") if path.is_dir() else [path.with_suffix(".py")]
+        for source in files:
+            try:
+                tree = ast.parse(source.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            module = f"{package}.{source.stem}" if package == "quant_engines" else package
+            for node in tree.body:
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _SYMBOL_MODULES.setdefault(node.name, module)
+
+
+def _prepare_factory(factory: Callable[..., Any]) -> None:
+    if len(_SYMBOL_MODULES) == 1:
+        _index_lazy_symbols()
+    for name in factory.__code__.co_names:
+        if name in globals():
+            continue
+        module_name = _SYMBOL_MODULES.get(name)
+        if module_name:
+            globals()[name] = getattr(importlib.import_module(module_name), name)
 
 logger = logging.getLogger("MasterProfitOrchestrator")
 
@@ -371,12 +265,14 @@ class MasterProfitOrchestrator:
         )
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
+        from quant_engines.strategy_circuit_backup import global_strategy_circuit_backup
         self.circuit_backup = global_strategy_circuit_backup
 
     def __getattr__(self, name: str) -> Any:
         factory = type(self)._LAZY_ENGINE_SPECS.get(name)
         if factory is None:
             raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+        _prepare_factory(factory)
         engine = factory(self)
         object.__setattr__(self, name, engine)
         return engine

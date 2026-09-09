@@ -19,8 +19,8 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from whale_copy_trader import WhaleCopyTraderEngine, WhaleSignalType, WhaleTradeMirrorPlan
-from liquidation_hunter import LiquidationHunterEngine, LiquidationSide, LiquidationSnipeOrder
-from stat_arb_pairs import StatisticalArbitragePairEngine, PairAction
+from quant_engines.liquidation_hunter import LiquidationHunterEngine, LiquidationSide, LiquidationSnipeOrder
+from quant_engines.stat_arb_pairs import StatisticalArbitragePairEngine, PairAction
 from market_regime_adapter import MarketRegimeAdapter, MarketRegime, RegimeParameters
 from multi_dex_router import MultiDEXUnifiedRouter, DEXVenue, VenueExecutionQuote
 

@@ -14,9 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pytest
 
-from multi_position_concurrency_engine import MultiPositionConcurrencyEngine
-from asymmetric_tp_maximizer import AsymmetricTPMaximizer
-from momentum_pyramid_scaler import MomentumPyramidScaler
+from quant_engines.multi_position_concurrency_engine import MultiPositionConcurrencyEngine
+from quant_engines.asymmetric_tp_maximizer import AsymmetricTPMaximizer
+from quant_engines.momentum_pyramid_scaler import MomentumPyramidScaler
 
 
 def test_multi_position_concurrency_slots():

@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from kyles_lambda_impact import KylesLambdaImpactEstimator
-from kalman_fair_value import KalmanFairValueTracker
-from liquidity_wall_sweeper import LiquidityWallBreakoutSweeper
-from granger_causality_network import GrangerCausalityNetwork
-from drawdown_brake_vault import DrawdownBrakeVault
+from quant_engines.kyles_lambda_impact import KylesLambdaImpactEstimator
+from quant_engines.kalman_fair_value import KalmanFairValueTracker
+from quant_engines.liquidity_wall_sweeper import LiquidityWallBreakoutSweeper
+from quant_engines.granger_causality_network import GrangerCausalityNetwork
+from quant_engines.drawdown_brake_vault import DrawdownBrakeVault
 
 
 def test_kyles_lambda_impact_estimation():

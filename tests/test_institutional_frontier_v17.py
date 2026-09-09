@@ -19,11 +19,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from quadratic_ofi_curvature import QuadraticOFICurvatureEngine
-from markov_jump_copula import MarkovJumpCopulaEngine
-from liquidity_vacuum_absorber import LiquidityVacuumAbsorberEngine, OrderbookDepthLevel
-from alpha_decay_predictor import AlphaDecayPredictorEngine
-from rollup_pga_sizer import RollupPGASizerEngine
+from quant_engines.quadratic_ofi_curvature import QuadraticOFICurvatureEngine
+from quant_engines.markov_jump_copula import MarkovJumpCopulaEngine
+from quant_engines.liquidity_vacuum_absorber import LiquidityVacuumAbsorberEngine, OrderbookDepthLevel
+from quant_engines.alpha_decay_predictor import AlphaDecayPredictorEngine
+from quant_engines.rollup_pga_sizer import RollupPGASizerEngine
 
 
 def test_quadratic_ofi_curvature():

@@ -184,11 +184,13 @@ def test_catalyst_classifier_story_fingerprint_lockout_15min_window():
 
 
 @pytest.mark.asyncio
-async def test_first_news_burst_five_events_only_first_takes_position(tmp_path):
+async def test_first_news_burst_five_events_only_first_takes_position(tmp_path, monkeypatch):
     """
     When 5 duplicate headlines arrive for the same asset within 2 minutes from 5 different sources:
     ONLY the 1st news takes a position and 2..5 are dropped.
     """
+    # All five fixture sources are live-eligible so the dedup logic (not source gating) is what drops 2..5
+    monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "treenews,bloomberg,coindesk,x_wires,reuters,twitter")
     db_file = str(tmp_path / "burst_test.db")
     bot = LighterNewsSniperBot(is_live=False)
     bot.db_path = db_file
@@ -331,8 +333,9 @@ async def test_active_position_blocks_duplicate_entry():
 
 
 @pytest.mark.asyncio
-async def test_risk_gate_strict_cooldown_and_open_position_veto():
+async def test_risk_gate_strict_cooldown_and_open_position_veto(monkeypatch):
     """Verify LighterNewsRiskGate strict 15-min cooldown and active open position veto."""
+    monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "treenews")
     gate = LighterNewsRiskGate(live=False)
     gate._session_trades = 0
     assert gate.cooldown_seconds >= 600.0  # min cooldown (env may configure 600s - 1800s)

@@ -18,11 +18,11 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from native_fast_ring_buffer import NativeFastRingBuffer
-from graph_diffusion_alpha import CrossAssetGraphDiffusionNetwork
-from heston_volatility_surface import HestonVolatilitySurfaceCalibrator
-from synthetic_dark_aggregator import SyntheticDarkLiquidityAggregator
-from disaster_recovery_vault import DisasterRecoveryVault
+from quant_engines.native_fast_ring_buffer import NativeFastRingBuffer
+from quant_engines.graph_diffusion_alpha import CrossAssetGraphDiffusionNetwork
+from quant_engines.heston_volatility_surface import HestonVolatilitySurfaceCalibrator
+from quant_engines.synthetic_dark_aggregator import SyntheticDarkLiquidityAggregator
+from quant_engines.disaster_recovery_vault import DisasterRecoveryVault
 
 
 def test_native_fast_ring_buffer():
