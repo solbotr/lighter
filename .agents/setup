@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# .agents/setup — Amp orb bootstrap for the Lighter/Hyperliquid trading bot repo.
+# Runs once for a fresh orb (or when a stale snapshot needs refreshing).
+# Idempotent, non-interactive, no long-lived processes. Target: < 2 min warm, < 2 min cold.
+set -euo pipefail
+
+START=$(date +%s)
+step() { printf '[setup] +%ss: %s\n' "$(( $(date +%s) - START ))" "$*"; }
+
+# --- 1. System packages ------------------------------------------------------
+# Only touch apt when something is genuinely missing, so warm snapshots skip it entirely.
+MISSING_PKGS=()
+command -v git >/dev/null 2>&1 || MISSING_PKGS+=(git)
+command -v curl >/dev/null 2>&1 || MISSING_PKGS+=(curl)
+command -v cc >/dev/null 2>&1 || MISSING_PKGS+=(build-essential)
+if [ "${#MISSING_PKGS[@]}" -gt 0 ]; then
+  step "apt-get: installing ${MISSING_PKGS[*]}"
+  apt-get update -qq
+  apt-get install -y -qq "${MISSING_PKGS[@]}"
+else
+  step "system packages present, skipping apt"
+fi
+
+# --- 2. Python dependencies --------------------------------------------------
+# No lockfile in this repo; requirements*.txt carry version ranges. pip is a no-op
+# when everything is already satisfied, so this is the warm-path fingerprint check.
+step "pip install -r requirements.txt -r requirements_autobot.txt"
+python3 -m pip install --quiet --disable-pip-version-check --no-input \
+  -r requirements.txt -r requirements_autobot.txt
+
+# --- 3. Env templates (copy, never clobber) -----------------------------------
+step "env templates"
+[ -f .env ] || cp -- .env.example .env
+[ -f .env.autobot ] || cp -- .env.autobot.example .env.autobot
+
+# --- 4. Smoke check: core imports resolve -------------------------------------
+step "smoke imports"
+python3 - <<'EOF'
+import web3, pydantic, aiohttp, feedparser, telegram, psutil, prometheus_client, httpx
+EOF
+
+# --- 5. Orb agent guidance -----------------------------------------------------
+# Repo-scoped note so agents in fresh orbs know how to run the test suites.
+GUIDE="$HOME/.config/amp/AGENTS.md"
+MARKER="# lighter-repo orb guidance"
+if ! grep -Fqx "$MARKER" "$GUIDE" 2>/dev/null; then
+  step "appending orb guidance to ~/.config/amp/AGENTS.md"
+  cat >> "$GUIDE" <<EOF
+
+$MARKER
+- Test suites: \`python3 -m pytest -q\` (autobot, via pytest.ini) and \`python3 -m pytest tests/ -q\` (root engines).
+- \`.env\` and \`.env.autobot\` are copied from their \`*.example\` templates on setup; never commit real values.
+- Kill switch: creating \`lighter_kill_switch.flag\` halts the MM bot; \`NEWS_KILL_SWITCH=true\` disables live news execution.
+EOF
+fi
+
+printf '[setup] done in %ss\n' "$(( $(date +%s) - START ))"

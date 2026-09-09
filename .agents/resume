@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# .agents/resume — runs every time an orb wakes. Must finish in ~10s.
+# Fast, idempotent re-checks only. No dependency installs, no network calls.
+set -euo pipefail
+
+# Env files must exist (e.g. restored from a snapshot taken before they were added).
+[ -f .env ] || cp -- .env.example .env
+[ -f .env.autobot ] || cp -- .env.autobot.example .env.autobot
+
+# Cheap liveness probe on the installed toolchain; fails loudly if deps vanished.
+python3 -c 'import web3, pydantic, telegram' >/dev/null

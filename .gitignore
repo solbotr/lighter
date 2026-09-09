@@ -74,3 +74,6 @@ credentials.json
 # Autobot env (keep only the .example)
 .env.autobot
 !.env.autobot.example
+
+# Amp orb runtime artifacts
+.amp/portals/*
