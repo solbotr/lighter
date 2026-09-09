@@ -1,37 +1,49 @@
 version: '3.8'
 
+# Lighter news sniper stack (live by default).
+# Key env vars (see .env.lighter.example):
+#   LIGHTER_BASE_URL, LIGHTER_ACCOUNT_INDEX, LIGHTER_API_KEY_INDEX,
+#   LIGHTER_API_PRIVATE_KEY, NEWS_KILL_SWITCH, TELEGRAM_TOKEN, ADMIN_CHAT_ID,
+#   LIGHTER_LIVE, DRY_RUN_DEFAULT=false, NEWS_PROMOTION_MODE=live
+
 services:
-  b20-bot:
+  lighter-bot:
     build: .
-    container_name: b20-bot
+    container_name: lighter-bot
     restart: always
     environment:
-      - RPC_URL=${RPC_URL}
-      - PRIVATE_KEY=${PRIVATE_KEY}
-      - FLASHBOTS_RPC=${FLASHBOTS_RPC}
-      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
-      - TG_USER_ID=${TG_USER_ID}
-      - MAX_TRADE_ETH=${MAX_TRADE_ETH}
-      - MAX_DAILY_LOSS_ETH=${MAX_DAILY_LOSS_ETH}
-      - MIN_LIQUIDITY_ETH=${MIN_LIQUIDITY_ETH}
-      - SLIPPAGE_BPS=${SLIPPAGE_BPS}
+      - LIGHTER_BASE_URL=${LIGHTER_BASE_URL:-https://mainnet.zklighter.elliot.ai}
+      - LIGHTER_ACCOUNT_INDEX=${LIGHTER_ACCOUNT_INDEX:-}
+      - LIGHTER_API_KEY_INDEX=${LIGHTER_API_KEY_INDEX:-}
+      - LIGHTER_API_PRIVATE_KEY=${LIGHTER_API_PRIVATE_KEY:-}
+      - LIGHTER_LIVE=${LIGHTER_LIVE:-true}
+      - DRY_RUN_DEFAULT=${DRY_RUN_DEFAULT:-false}
+      - NEWS_PROMOTION_MODE=${NEWS_PROMOTION_MODE:-live}
+      - NEWS_KILL_SWITCH=${NEWS_KILL_SWITCH:-false}
+      - NEWS_FORCE_LIVE=${NEWS_FORCE_LIVE:-true}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-}
+      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID:-}
+      - TELEGRAM_ADMIN_IDS=${TELEGRAM_ADMIN_IDS:-}
+      - WALLET_ADDRESS=${WALLET_ADDRESS:-}
+      - NEWS_DB_PATH=${NEWS_DB_PATH:-/app/data/lighter_news.db}
     volumes:
       - ./data:/app/data
+      # Optional: mount a host .env for local secrets (never bake into the image)
       - ./.env:/app/.env:ro
     ports:
-      - "8000:8000"
+      - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import lighter_news_sniper"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 15s
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: b20-prometheus
+    container_name: lighter-prometheus
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -41,9 +53,9 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    container_name: b20-grafana
+    container_name: lighter-grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
     volumes:
       - grafana_data:/var/lib/grafana
     ports:

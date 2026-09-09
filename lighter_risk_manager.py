@@ -15,8 +15,8 @@ Enforces:
 import os
 import time
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 from lighter_strategy import OrderSide, TargetQuote
 
 logger = logging.getLogger(__name__)
@@ -49,16 +49,62 @@ class LighterRiskManager:
         self.pause_reason: str = ""
         self.circuit_broken: bool = False
         self.baseline_volatility: float = 0.01
+        # Money-safety: one-shot cancel(+flatten) when pause/kill newly engages
+        self._pending_halt_action: bool = False
+        self._pending_stale_cancel: bool = False
+        self._last_halt_reason: str = ""
 
     def record_heartbeat(self):
         """Updates the timestamp of the latest received WebSocket message."""
         self.last_heartbeat_time = time.time()
+        if self.circuit_broken and self.pause_reason.startswith("WebSocket heartbeat"):
+            # Allow recover; do not auto-unpause kill/daily-loss pauses
+            self.circuit_broken = False
+            if not self.is_paused:
+                self.pause_reason = ""
+            self._pending_stale_cancel = False
+
+    def engage_pause(self, reason: str, *, flatten_eligible: bool = True) -> None:
+        """
+        Engage risk pause. Sets one-shot halt action so callers cancel-all
+        (and optionally flatten when flatten_eligible / KILL_FLATTEN).
+        """
+        newly = (not self.is_paused) or (reason != self._last_halt_reason)
+        self.is_paused = True
+        self.pause_reason = reason
+        self._last_halt_reason = reason
+        if newly:
+            self._pending_halt_action = True
+            logger.critical("[RISK] Pause engaged: %s (halt_action pending flatten_eligible=%s)", reason, flatten_eligible)
+
+    def consume_halt_action(self) -> Optional[str]:
+        """
+        Returns pause reason once when kill/pause requires cancel-all (+ optional flatten).
+        Clears the one-shot flag.
+        """
+        if not self._pending_halt_action:
+            return None
+        self._pending_halt_action = False
+        return self.pause_reason or self._last_halt_reason or "PAUSE"
+
+    def consume_stale_cancel(self) -> bool:
+        """True once when WS/vol circuit requires cancel-all (no flatten)."""
+        if not self._pending_stale_cancel:
+            return False
+        self._pending_stale_cancel = False
+        return True
 
     def check_kill_switch_file(self) -> bool:
         """Checks if a manual kill switch file exists on disk."""
         if os.path.exists(self.limits.kill_switch_file):
-            self.is_paused = True
-            self.pause_reason = f"Kill switch file detected ({self.limits.kill_switch_file})"
+            self.engage_pause(f"Kill switch file detected ({self.limits.kill_switch_file})")
+            return True
+        return False
+
+    def check_news_kill_switch(self) -> bool:
+        """Env NEWS_KILL_SWITCH (shared with news sniper)."""
+        if os.getenv("NEWS_KILL_SWITCH", "").lower() in ("1", "true", "yes", "on"):
+            self.engage_pause("NEWS_KILL_SWITCH engaged")
             return True
         return False
 
@@ -69,9 +115,9 @@ class LighterRiskManager:
 
         # Check daily drawdown
         if self.daily_realized_pnl < -abs(self.limits.max_daily_loss_usd):
-            self.is_paused = True
-            self.pause_reason = f"Daily loss limit breached (-${abs(self.daily_realized_pnl):.2f} > -${self.limits.max_daily_loss_usd:.2f})"
-            logger.critical(f"[RISK] {self.pause_reason}")
+            self.engage_pause(
+                f"Daily loss limit breached (-${abs(self.daily_realized_pnl):.2f} > -${self.limits.max_daily_loss_usd:.2f})"
+            )
 
     def update_inventory(self, delta_qty: float):
         """Updates the tracked base asset inventory."""
@@ -85,6 +131,8 @@ class LighterRiskManager:
         """Deadman's switch: returns True if WebSocket connection is live, False if timed out."""
         elapsed = time.time() - self.last_heartbeat_time
         if elapsed > self.limits.heartbeat_timeout_sec:
+            if not self.circuit_broken or not self.pause_reason.startswith("WebSocket heartbeat"):
+                self._pending_stale_cancel = True
             self.circuit_broken = True
             self.pause_reason = f"WebSocket heartbeat timeout ({elapsed:.1f}s > {self.limits.heartbeat_timeout_sec}s)"
             logger.warning(f"[RISK] {self.pause_reason}")
@@ -99,6 +147,8 @@ class LighterRiskManager:
 
         ratio = current_volatility / self.baseline_volatility
         if ratio > self.limits.max_volatility_multiplier:
+            if not self.circuit_broken or "Volatility spike" not in self.pause_reason:
+                self._pending_stale_cancel = True
             self.circuit_broken = True
             self.pause_reason = f"Volatility spike detected ({ratio:.1f}x baseline)"
             logger.warning(f"[RISK] {self.pause_reason}")
@@ -117,8 +167,10 @@ class LighterRiskManager:
         """
         Filters and bounds target quotes according to pre-trade risk and inventory delta rules.
         """
-        # 1. Check Kill Switch & Pause State
-        if self.check_kill_switch_file() or self.is_paused:
+        # 1. Check Kill Switch & Pause State (file + NEWS_KILL_SWITCH + prior pause)
+        self.check_kill_switch_file()
+        self.check_news_kill_switch()
+        if self.is_paused:
             return {OrderSide.BUY: [], OrderSide.SELL: []}
 
         # 2. Check Liveness
@@ -171,6 +223,9 @@ class LighterRiskManager:
         self.circuit_broken = False
         self.is_paused = False
         self.pause_reason = ""
+        self._pending_halt_action = False
+        self._pending_stale_cancel = False
+        self._last_halt_reason = ""
         self.last_heartbeat_time = time.time()
         logger.info("[RISK] Circuit breaker reset. Quoting resumed.")
 
@@ -186,4 +241,5 @@ class LighterRiskManager:
             "pause_reason": self.pause_reason,
             "circuit_broken": self.circuit_broken,
             "seconds_since_heartbeat": round(time.time() - self.last_heartbeat_time, 2),
+            "pending_halt_action": self._pending_halt_action,
         }

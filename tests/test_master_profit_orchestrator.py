@@ -26,7 +26,7 @@ from liquidation_hunter import (
 
 
 def test_master_orchestrator_initialization():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     assert orchestrator.subaccount_manager is not None
     assert orchestrator.basis_engine is not None
     assert orchestrator.funding_engine is not None
@@ -37,7 +37,7 @@ def test_master_orchestrator_initialization():
 
 
 def test_master_orchestrator_shard_routing():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     
     # Verify Sniper routing -> #737649
     sniper_shard = orchestrator.route_trade_to_shard("news_catalyst")
@@ -53,7 +53,7 @@ def test_master_orchestrator_shard_routing():
 
 
 def test_master_orchestrator_arbitrage_evaluation():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     
     # Feed spot & perp prices with basis spread
     orchestrator.basis_engine.update_spot_book("ETH", bid=2000.0, ask=2000.20)
@@ -66,7 +66,7 @@ def test_master_orchestrator_arbitrage_evaluation():
 
 
 def test_master_orchestrator_orderbook_processing():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     
     bids = [(2000.0, 50.0), (1995.0, 10.0)]
     asks = [(2005.0, 2.0)]
@@ -84,7 +84,7 @@ def test_master_orchestrator_orderbook_processing():
 
 
 def test_master_orchestrator_capital_and_sweeps():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     
     # Capital of $750 on $500 base (1.5x ratio) -> 1.25x multiplier and triggers $50 sweep
     mult, sweep = orchestrator.evaluate_capital_and_sweeps(750.0)

@@ -18,6 +18,25 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("FastSignerEngine")
+_MOCK_SIGNATURE_WARNED = False
+
+
+def _reject_or_warn_mock_signature(sig_hex: str) -> None:
+    """Mock 0xfast_sig_* payloads are not production signing."""
+    global _MOCK_SIGNATURE_WARNED
+    require = os.getenv("REQUIRE_REAL_SIGNER", "").strip().lower()
+    if require in ("1", "true", "yes"):
+        raise RuntimeError(
+            "REQUIRE_REAL_SIGNER=1: cython_fast_signer returned a mock signature "
+            f"({sig_hex}). This is not a production signer."
+        )
+    if not _MOCK_SIGNATURE_WARNED:
+        logger.warning(
+            "Mock signature %s — NOT production signing. "
+            "Set REQUIRE_REAL_SIGNER=1 to fail closed instead of returning 0xfast_sig_*.",
+            sig_hex,
+        )
+        _MOCK_SIGNATURE_WARNED = True
 
 
 @dataclass
@@ -119,8 +138,9 @@ class UltraFastSignerEngine:
             self.api_key_index,
         )
 
-        # Mock lightning signature creation
+        # Mock lightning signature creation (not a production signer)
         sig_hex = f"0xfast_sig_{market_index}_{self.current_nonce}_{raw_price}_{raw_amount}"
+        _reject_or_warn_mock_signature(sig_hex)
 
         t1 = time.perf_counter_ns()
         latency_us = (t1 - t0) / 1000.0

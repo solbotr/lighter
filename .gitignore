@@ -77,3 +77,9 @@ credentials.json
 
 # Amp orb runtime artifacts
 .amp/portals/*
+
+base-sniper-repo/
+laptop-repo/
+repo_laptop/
+client_order_ids.json
+

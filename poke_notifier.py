@@ -20,6 +20,10 @@ import time
 import urllib.request
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv(override=False)
+
 logger = logging.getLogger("PokeAI")
 
 POKE_API_URL = os.getenv("POKE_API_URL", os.getenv("POKE_WEBHOOK_URL", "https://poke.com/api/v1/inbound/api-message"))

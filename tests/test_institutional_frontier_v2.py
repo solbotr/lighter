@@ -113,7 +113,7 @@ async def test_emergency_flash_evacuator():
         active_positions_count=3,
         open_orders_count=8,
         total_collateral_usd=500.0,
-        is_paper=True,
+        
     )
 
     assert audit.orders_cancelled_count == 8

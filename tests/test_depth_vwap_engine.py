@@ -16,6 +16,8 @@ import math
 import os
 import sys
 import time
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 # Ensure repository root is in sys.path
@@ -328,7 +330,13 @@ def test_microstructure_alpha_indicators():
 
 @pytest.mark.asyncio
 async def test_execution_engine_taker_snipe_vwap_integration():
-    engine = LighterExecutionEngine(is_paper_mode=True, market_index=0)
+    engine = LighterExecutionEngine(market_index=0, account_index=737649, api_private_key="test-key")
+    engine.signer_failed = False
+    signer = MagicMock()
+    signer.create_order = AsyncMock(return_value=("tx", "0xabc", None))
+    signer.ORDER_TYPE_MARKET = 1
+    signer.ORDER_TIME_IN_FORCE_IOC = 1
+    engine.signer_client = signer
 
     # Populate engine depth book
     book = engine.depth_engine.get_or_create_book(market_index=0)
@@ -352,12 +360,24 @@ async def test_execution_engine_taker_snipe_vwap_integration():
     assert "vwap_price" in res
     assert res["vwap_price"] >= 2500.0
     assert "expected_slippage_bps" in res
-    assert res["mode"] == "PAPER"
+    assert res["mode"] == "LIVE"
 
 
 @pytest.mark.asyncio
-async def test_news_sniper_max_size_vwap_sizing_guard():
-    sniper = MaxSizeExecutionEngine(is_live=False, default_tp_pct=2.5, default_sl_pct=1.5)
+async def test_news_sniper_max_size_vwap_sizing_guard(monkeypatch):
+    monkeypatch.setenv("SPEED_SKIP_VWAP", "0")
+    monkeypatch.setenv("SPEED_ASYNC_FILL_CONFIRM", "0")
+    sniper = MaxSizeExecutionEngine(is_live=True, default_tp_pct=2.5, default_sl_pct=1.5)
+    sniper.signer_client = MagicMock()
+    sniper.fetch_available_collateral_usd = AsyncMock(return_value=100.0)
+    sniper.fetch_spread_bps = AsyncMock(return_value=0.0)
+    sniper._submit_live_order = AsyncMock(return_value=("0xtx", None))
+    sniper.place_protective_exits = AsyncMock(
+        return_value={"tp": True, "sl": True, "detail": "mocked", "on_book": True}
+    )
+    sniper.wait_for_exchange_position = AsyncMock(
+        return_value={"symbol": "ETH", "market_index": 0, "size": 0.03, "entry_price": 3000.0, "side": "BUY/LONG"}
+    )
 
     # Setup book with shallow liquidity
     book = sniper.depth_engine.get_or_create_book(market_index=0, symbol="ETH")
@@ -376,12 +396,14 @@ async def test_news_sniper_max_size_vwap_sizing_guard():
         is_ask=False,
         current_market_price=3000.0,
         notional_usd=1000.0,
+        strategy_approved=True,
     )
 
     assert res["success"] is True
-    assert "vwap_price" in res
-    assert "expected_slippage_bps" in res
-    assert "depth_exhausted" in res
+    assert res["mode"] == "LIVE_MAINNET"
+    assert res["asset"] == "ETH"
+    assert res["size_eth"] > 0
+    assert res["ordered_size"] < 1000.0 / 3000.0
 
 
 def test_depth_vwap_engine_multi_market_registry():

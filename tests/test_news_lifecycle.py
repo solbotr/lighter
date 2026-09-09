@@ -1,13 +1,27 @@
 import asyncio
 import os
+import sys
 from datetime import datetime, timezone
 
-from news_lifecycle import PaperFillSimulator, PositionBook, PositionClock, TradeIntentQueue
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from news_lifecycle import PositionBook, PositionClock, TradeIntentQueue
 from news_markets import MarketRegistry
 from news_observability import NewsReplay
 from news_pipeline import NewsPipeline, NormalizedNewsEvent
 from news_sources import JSONNewsAdapter, NewsSourceConfig, RawNewsRecord, WebhookNewsAdapter, parse_retry_after
 from lighter_news_risk import MarketSnapshot
+
+
+def _mark_filled(intent, snapshot, fee_bps=4.0, slippage_bps=8.0):
+    slip = slippage_bps / 10_000.0
+    price = snapshot.price * (1.0 + slip if intent.side == "BUY/LONG" else 1.0 - slip)
+    size = intent.requested_usd / max(price, 1e-9)
+    intent.fill_price = round(price, 8)
+    intent.fill_size = round(size, 8)
+    intent.fee_usd = round(intent.requested_usd * (fee_bps / 10_000.0), 8)
+    intent.status = "filled"
+    return intent
 
 
 def _event(source="one", headline="Exchange lists ETH", cluster="cluster-eth"):
@@ -56,13 +70,13 @@ def test_duplicate_cluster_does_not_create_second_intent():
     assert len(queue.intents) == 1
 
 
-def test_paper_fill_and_restart_reconciliation(tmp_path):
+def test_fill_and_restart_reconciliation(tmp_path):
     db = str(tmp_path / "news.db")
     queue = TradeIntentQueue(db)
     book = PositionBook(db)
     market = MarketRegistry().get("ETH")
     intent = asyncio.run(queue.enqueue(_event(), market, "BUY/LONG", 25))
-    filled = PaperFillSimulator().fill(intent, MarketSnapshot("ETH", 2500))
+    filled = _mark_filled(intent, MarketSnapshot("ETH", 2500))
     assert filled.status == "filled"
     assert filled.fill_size > 0
     pos = book.activate_from_fill(filled)
@@ -79,7 +93,7 @@ def test_correction_replay_and_emergency_flatten():
     book = PositionBook()
     market = MarketRegistry().get("ETH")
     intent = asyncio.run(TradeIntentQueue().enqueue(events[0], market, "BUY/LONG", 25))
-    PaperFillSimulator().fill(intent, MarketSnapshot("ETH", 2500, timestamp=__import__("time").time()))
+    _mark_filled(intent, MarketSnapshot("ETH", 2500, timestamp=__import__("time").time()))
     book.activate_from_fill(intent)
     closed = book.emergency_flatten({"ETH": 2490})
     assert closed and not book.active()

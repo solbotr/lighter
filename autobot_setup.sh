@@ -13,4 +13,5 @@ playwright install-deps chromium
 
 echo ""
 echo "Setup complete! Run the bot with:"
-echo "  python autobot/autobot.py https://example.com"
+echo "  python -m autobot https://example.com"
+echo "  # loads .env.autobot only (not the trading .env)"

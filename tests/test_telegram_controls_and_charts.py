@@ -182,8 +182,12 @@ def mock_executor():
 
 
 @pytest.fixture
-def bot(mock_executor):
-    ctx = {"executor": mock_executor, "is_paper_mode": True}
+def bot(mock_executor, monkeypatch):
+    monkeypatch.setenv("ADMIN_CHAT_ID", "12345")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "12345")
+    monkeypatch.delenv("DRY_RUN_DEFAULT", raising=False)
+    monkeypatch.delenv("NEWS_KILL_SWITCH", raising=False)
+    ctx = {"executor": mock_executor}
     return LighterTelegramBot(ctx)
 
 

@@ -234,10 +234,11 @@ class TelegramMiniAppGenerator:
 class MiniAppHTTPServer:
     """
     Live Asynchronous HTTP Server for Mini-App on Port 8080.
+    Default bind is loopback; set MINI_APP_BIND=0.0.0.0 to expose externally.
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080, ctx: Optional[Dict[str, Any]] = None):
-        self.host = host
+    def __init__(self, host: Optional[str] = None, port: int = 8080, ctx: Optional[Dict[str, Any]] = None):
+        self.host = host if host is not None else os.getenv("MINI_APP_BIND", "127.0.0.1")
         self.port = port
         self.ctx = ctx or {}
 
@@ -298,11 +299,12 @@ class MiniAppHTTPServer:
 
 
 if __name__ == "__main__":
+    bind = os.getenv("MINI_APP_BIND", "127.0.0.1")
     app = web.Application()
-    server = MiniAppHTTPServer(host="0.0.0.0", port=8080)
+    server = MiniAppHTTPServer(host=bind, port=8080)
     app.router.add_get("/", server.handle_index)
     app.router.add_get("/health", server.handle_api_status)
     app.router.add_get("/status", server.handle_api_status)
-    print("📱 Serving Telegram MiniApp on http://0.0.0.0:8080")
-    web.run_app(app, host="0.0.0.0", port=8080)
+    print(f"📱 Serving Telegram MiniApp on http://{bind}:8080")
+    web.run_app(app, host=bind, port=8080)
 

@@ -49,7 +49,7 @@ async def test_telegram_voice_copilot_transcription_and_dispatch():
 # =============================================================================
 
 def test_prometheus_metrics_generator():
-    orchestrator = MasterProfitOrchestrator(is_paper=True)
+    orchestrator = MasterProfitOrchestrator()
     collector = PerformanceMetricsCollector(master_orchestrator=orchestrator)
 
     metrics_text = collector.generate_prometheus_metrics()

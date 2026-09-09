@@ -470,7 +470,6 @@ class SubaccountManager:
         from_account_index: int,
         to_account_index: int,
         amount_usd: float,
-        is_paper: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes internal collateral transfer between subaccounts on zkLighter.
@@ -500,10 +499,10 @@ class SubaccountManager:
         from_st.last_updated = time.time()
         to_st.last_updated = time.time()
 
-        tx_hash = f"0xsim_transfer_{int(time.time()*1000)}_{from_account_index}_{to_account_index}"
-        
-        # If live and signer is provided, execute on-chain transfer
-        if not is_paper and hasattr(self, "signer_client") and self.signer_client:
+        tx_hash = f"0xtransfer_{int(time.time()*1000)}_{from_account_index}_{to_account_index}"
+
+        # Execute on-chain transfer when signer is available
+        if hasattr(self, "signer_client") and self.signer_client:
             try:
                 prof = self.profiles.get(from_st.role)
                 api_idx = prof.api_key_index if prof else self.default_api_key_index
@@ -534,14 +533,12 @@ class SubaccountManager:
             "from_account_index": from_account_index,
             "to_account_index": to_account_index,
             "amount_usd": amount_usd,
-            "is_paper": is_paper,
         }
 
     async def ensure_margin_available(
         self,
         target_account_index: int,
         required_margin_usd: float,
-        is_paper: bool = False,
     ) -> bool:
         """
         Automatic Just-In-Time (JIT) Margin Top-Up:
@@ -570,7 +567,6 @@ class SubaccountManager:
                         from_account_index=acc_idx,
                         to_account_index=target_account_index,
                         amount_usd=transfer_amount,
-                        is_paper=is_paper,
                     )
                     if res.get("success"):
                         deficit -= transfer_amount

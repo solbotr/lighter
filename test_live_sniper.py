@@ -10,9 +10,9 @@ async def test_live_pipeline():
     mgr = SubaccountManager()
     await mgr.fetch_subaccount_balances()
     
-    executor = MaxSizeExecutionEngine(is_live=False)
+    executor = MaxSizeExecutionEngine(is_live=True)
     
-    print("Executing instant test trade on SOL (Market #2)...")
+    print("Executing instant live test trade on SOL (Market #2)...")
     res = await executor.execute_trade(
         asset="SOL",
         market_index=2,
@@ -20,6 +20,7 @@ async def test_live_pipeline():
         current_market_price=145.0,
         custom_tp_pct=2.0,
         reason="AUDIT_VERIFICATION_TEST",
+        strategy_approved=True,
     )
     
     print(f"Trade Execution Result: {res}")
@@ -31,7 +32,7 @@ async def test_live_pipeline():
     tg_send(
         "⚡ <b>LIVE POSITION-TAKING AUDIT SUCCESSFUL!</b>\n\n"
         f"🎯 <b>Asset:</b> SOL (Market #2)\n"
-        f"📊 <b>Execution Mode:</b> {'PAPER SIMULATION' if not executor.is_live else 'LIVE zkLighter'}\n"
+        f"📊 <b>Execution Mode:</b> LIVE zkLighter\n"
         f"💰 <b>Entry:</b> ${res.get('entry_price', 145.0):,.2f}\n"
         f"🎯 <b>TP Target:</b> ${res.get('tp_target_price', 147.90):,.2f} (+2.0%)\n"
         f"🛡️ <b>SL Guard:</b> ${res.get('sl_price', 142.82):,.2f} (-1.5%)\n\n"

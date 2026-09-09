@@ -119,7 +119,7 @@ def test_vip_signal_broadcaster():
         sl_price=142.8,
         catalyst_headline="US SEC Formally Approves Solana Spot ETF Filings",
         conviction_score=0.95,
-        is_paper=True,
+        
     )
 
     assert sig.symbol == "SOL"

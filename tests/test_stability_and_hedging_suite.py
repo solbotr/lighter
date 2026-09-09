@@ -77,12 +77,12 @@ def test_autonomous_delta_hedger():
 
     # 1. Below threshold ($50 delta) -> No hedge needed
     hedger.update_inventory("ETH", net_base_qty=0.025)  # 0.025 ETH * $2000 = $50
-    hedge1 = hedger.evaluate_hedge("ETH", current_mark_price=2000.0, is_paper=True)
+    hedge1 = hedger.evaluate_hedge("ETH", current_mark_price=2000.0)
     assert hedge1 is None
 
     # 2. Above threshold ($200 delta) -> Triggers SELL hedge on Hyperliquid
     hedger.update_inventory("ETH", net_base_qty=0.10)  # 0.10 ETH * $2000 = $200
-    hedge2 = hedger.evaluate_hedge("ETH", current_mark_price=2000.0, is_paper=True)
+    hedge2 = hedger.evaluate_hedge("ETH", current_mark_price=2000.0)
     assert hedge2 is not None
     assert hedge2.hedge_side == "SELL/SHORT"
     assert hedge2.hedged_usd == 200.0

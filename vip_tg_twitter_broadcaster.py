@@ -93,10 +93,9 @@ class VIPSignalBroadcaster:
         sl_price: float,
         catalyst_headline: str,
         conviction_score: float = 0.90,
-        is_paper: bool = True,
     ) -> BroadcastSignal:
         """
-        Dispatches signal to VIP Telegram and Twitter/X.
+        Dispatches live trade signal to VIP Telegram and Twitter/X.
         """
         sig_id = f"sig_{symbol}_{int(time.time()*1000)}"
         sig = BroadcastSignal(

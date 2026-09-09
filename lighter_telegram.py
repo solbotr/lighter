@@ -105,6 +105,128 @@ def get_telegram_config() -> Tuple[str, str]:
     return token, chat_id
 
 
+def get_telegram_admin_allowlist() -> set:
+    """Comma-separated admin IDs from TELEGRAM_ADMIN_CHAT_ID / ADMIN_CHAT_ID / TG_USER_ID."""
+    parts: list = []
+    for key in ("TELEGRAM_ADMIN_CHAT_ID", "ADMIN_CHAT_ID", "TG_USER_ID"):
+        raw = (os.getenv(key) or "").strip()
+        if raw:
+            parts.extend(raw.split(","))
+    return {p.strip() for p in parts if p.strip()}
+
+
+def is_telegram_admin(user_id: Any, chat_id: Any = None) -> bool:
+    allowlist = get_telegram_admin_allowlist()
+    if not allowlist:
+        return False
+    candidates = {str(user_id)}
+    if chat_id is not None:
+        candidates.add(str(chat_id))
+    return bool(candidates & allowlist)
+
+
+def telegram_live_trading_enabled(ctx: Optional[Dict[str, Any]] = None) -> bool:
+    """Always live when the bot is running.
+
+    Emergency stop only: NEWS_KILL_SWITCH (and DRY_RUN_DEFAULT as a hard stop).
+    """
+    if os.getenv("NEWS_KILL_SWITCH", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("DRY_RUN_DEFAULT", "false").lower() in ("1", "true", "yes"):
+        return False
+    return True
+
+
+_MUTATING_ACTION_PREFIXES = (
+    "pos_be_",
+    "pos_close",
+    "pos_tp",
+    "menu_close",
+    "menu_pause",
+    "menu_resume",
+    "menu_exec",
+    "quick_long_",
+    "quick_short_",
+)
+_MUTATING_ACTION_TOKENS = {
+    "close",
+    "exit",
+    "close all",
+    "menu_close_all",
+    "flatten",
+    "flatten all",
+    "emergency exit",
+    "/pause",
+    "menu_pause",
+    "/resume",
+    "menu_resume",
+    "pause bot",
+    "resume bot",
+    "menu_exec_rebalance",
+}
+
+
+def telegram_action_mutates_state(text: str, aliases: Optional[Dict[str, Any]] = None) -> bool:
+    """True for trade / close / pause / TP-SL / rebalance-exec style commands."""
+    raw = (text or "").strip().lower()
+    if not raw:
+        return False
+    if raw in _MUTATING_ACTION_TOKENS:
+        return True
+    if any(raw.startswith(p) for p in _MUTATING_ACTION_PREFIXES):
+        return True
+    if raw.startswith("/tp") or raw.startswith("/sl") or raw.startswith("tp ") or raw.startswith("sl "):
+        return True
+    if any(tok in raw for tok in ("snipe ", "breakeven", "flatten", "close 50", "close50", "buy ", "sell ", "long ", "short ")):
+        return True
+    clean = (
+        raw.replace("short ", "")
+        .replace("sell ", "")
+        .replace("buy ", "")
+        .replace("long ", "")
+        .replace("quick_long_", "")
+        .replace("quick_short_", "")
+        .strip()
+    )
+    if aliases and clean in aliases:
+        return True
+    return False
+
+
+def authorize_telegram_mutating_action(
+    user_id: Any,
+    chat_id: Any = None,
+    *,
+    is_live: bool,
+    action: str = "",
+) -> Tuple[bool, str]:
+    """
+    Fail closed when live trading is on and allowlist is empty.
+    When allowlist is set, require user_id or chat_id membership for mutating actions.
+    """
+    allowlist = get_telegram_admin_allowlist()
+    if is_live and not allowlist:
+        logger.warning(
+            "Unauthorized TG action blocked (live enabled, empty admin allowlist): user_id=%s chat_id=%s action=%r",
+            user_id,
+            chat_id,
+            (action or "")[:80],
+        )
+        return False, "🚫 <b>Denied</b>: live trading requires an admin allowlist (TELEGRAM_ADMIN_CHAT_ID / ADMIN_CHAT_ID / TG_USER_ID)."
+    if not allowlist:
+        # Empty allowlist only permitted when not live (should not happen — live requires allowlist above).
+        return True, ""
+    if is_telegram_admin(user_id, chat_id):
+        return True, ""
+    logger.warning(
+        "Unauthorized TG action blocked: user_id=%s chat_id=%s action=%r",
+        user_id,
+        chat_id,
+        (action or "")[:80],
+    )
+    return False, "🚫 <b>Unauthorized</b>: your Telegram ID is not on the admin allowlist."
+
+
 from collections import deque
 from difflib import SequenceMatcher
 import re
@@ -310,7 +432,7 @@ def tg_send_photo(
 
 
 def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
-    """Formats live/paper trade fill notification card."""
+    """Formats live trade fill notification card."""
     asset = result.get("asset", "UNK")
     side = result.get("side", "BUY/LONG")
     entry_p = float(result.get("entry_price") or 0.0)
@@ -328,8 +450,6 @@ def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
     if sl <= 0.0 and entry_p > 0.0:
         sl = entry_p * (1.0 - (sl_pct / 100.0) if is_buy else 1.0 + (sl_pct / 100.0))
 
-    mode = result.get("mode", "LIVE_MAINNET")
-    is_live = "LIVE" in str(mode).upper()
     emoji = "🟢" if is_buy else "🔴"
 
     head_snippet = f"\n📰 <b>Catalyst:</b> <i>{headline[:100]}</i>" if headline else ""
@@ -338,7 +458,7 @@ def format_fill_card(result: Dict[str, Any], headline: str = "") -> str:
         f"🚀 <b>NEW POSITION OPENED</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"🎯 <b>Asset:</b> <code>{asset}</code> ({side})\n"
-        f"{emoji} <b>Mode:</b> <code>{'⚡ LIVE zkLighter' if is_live else '🧪 PAPER'}</code>\n"
+        f"{emoji} <b>Mode:</b> <code>⚡ LIVE zkLighter</code>\n"
         f"💵 <b>Size:</b> <code>{size} {asset}</code> (~${notional:.2f} USD)\n"
         f"⚡ <b>Entry:</b> <code>${entry_p:.4f}</code>\n"
         f"🎯 <b>Take Profit:</b> <code>${tp:.4f}</code> (+{tp_pct:.1f}%)\n"
@@ -385,7 +505,7 @@ def format_exit_card(ev: Dict[str, Any], flat: bool = True) -> str:
     )
 
 
-def format_daily_pnl_report(stats: Dict[str, Any], is_paper_mode: bool = False) -> str:
+def format_daily_pnl_report(stats: Dict[str, Any]) -> str:
     """Formats institutional 24h Daily Performance & PnL Report."""
     daily_pnl = stats.get("daily_realized_pnl_usd", 0.0)
     net_pnl = stats.get("daily_net_pnl_usd", daily_pnl)
@@ -406,7 +526,7 @@ def format_daily_pnl_report(stats: Dict[str, Any], is_paper_mode: bool = False) 
     pnl_emoji = "🟢" if net_pnl >= 0 else "🔴"
     pnl_str = f"+${net_pnl:,.2f}" if net_pnl >= 0 else f"-${abs(net_pnl):,.2f}"
     all_pnl_str = f"+${all_time_pnl:,.2f}" if all_time_pnl >= 0 else f"-${abs(all_time_pnl):,.2f}"
-    mode_str = "🧪 PAPER SIMULATION" if is_paper_mode else "⚡ LIVE zkLighter"
+    mode_str = "⚡ LIVE zkLighter"
 
     report = (
         f"📊 <b>LIGHTER DAILY PnL & VOLUME REPORT</b>\n"
@@ -524,7 +644,7 @@ class LighterTelegramBot:
         # Start Mini-App HTTP Dashboard Server on Port 8080
         if MiniAppHTTPServer:
             try:
-                self.mini_app_server = MiniAppHTTPServer(host="0.0.0.0", port=8080, ctx=self.ctx)
+                self.mini_app_server = MiniAppHTTPServer(port=8080, ctx=self.ctx)
                 self.mini_app_server.start_in_background()
             except Exception as e:
                 logger.debug("MiniApp Server startup: %s", e)
@@ -666,8 +786,7 @@ class LighterTelegramBot:
             from lighter_db import LighterDBManager
             db = LighterDBManager()
         stats = db.get_daily_stats()
-        is_paper = self.ctx.get("is_paper_mode", False)
-        msg = format_daily_pnl_report(stats, is_paper_mode=is_paper)
+        msg = format_daily_pnl_report(stats)
         return tg_send(msg, self.build_main_keyboard())
 
     async def _daily_report_worker(self, session: aiohttp.ClientSession):
@@ -686,15 +805,26 @@ class LighterTelegramBot:
                 logger.debug(f"[Daily Report Worker Error]: {e}")
                 await asyncio.sleep(60.0)
 
-    async def handle_user_action(self, text: str, user_id: int) -> Tuple[str, Optional[dict]]:
+    async def handle_user_action(
+        self,
+        text: str,
+        user_id: int,
+        chat_id: Optional[int] = None,
+    ) -> Tuple[str, Optional[dict]]:
         raw = text.strip().lower()
         collat = self.cached_collateral
         key_idx = os.getenv("LIGHTER_API_KEY_INDEX", "5")
-        if "bot" in self.ctx and hasattr(self.ctx["bot"], "is_live"):
-            is_live = self.ctx["bot"].is_live
-        else:
-            is_live = os.getenv("LIGHTER_LIVE", "true").lower() in ("true", "1", "yes") and os.getenv("NEWS_PAPER_MODE", "false").lower() not in ("true", "1", "yes") and not self.ctx.get("is_paper_mode", False)
-        mode = "⚡ LIVE TRADING (zkLighter)" if is_live else "🧪 PAPER TRADING"
+        is_live = telegram_live_trading_enabled(self.ctx)
+        if telegram_action_mutates_state(text, self.UNIVERSAL_ALIASES):
+            ok, deny_msg = authorize_telegram_mutating_action(
+                user_id, chat_id, is_live=is_live, action=text,
+            )
+            if not ok:
+                return deny_msg, self.build_main_keyboard()
+        # Stash caller IDs for copilot ACL
+        self.ctx["tg_user_id"] = user_id
+        self.ctx["tg_chat_id"] = chat_id
+        mode = "⚡ LIVE TRADING (zkLighter)"
         executor = self.ctx.get("executor")
 
         # -------------------------------------------------------------
@@ -707,29 +837,51 @@ class LighterTelegramBot:
             symbol, market_idx, est_price = self.UNIVERSAL_ALIASES[clean_ticker]
             side_str = "SELL/SHORT" if is_short else "BUY/LONG"
 
-            if executor:
-                res = await executor.execute_trade(
+            bot = self.ctx.get("bot") or self.ctx.get("bot_instance")
+            if bot is not None and hasattr(bot, "execute_strategy_entry"):
+                res = await bot.execute_strategy_entry(
                     asset=symbol,
                     market_index=market_idx,
                     is_ask=is_short,
-                    current_market_price=est_price,
+                    price=est_price,
                     custom_tp_pct=self.tp_pct,
                     reason=f"MANUAL_{side_str}_{symbol}",
+                    entry_mode="telegram",
+                    stop_distance_pct=self.sl_pct,
                 )
-                tp_price = est_price * (1.0 - self.tp_pct / 100.0) if is_short else est_price * (1.0 + self.tp_pct / 100.0)
-                sl_price = est_price * (1.0 + self.sl_pct / 100.0) if is_short else est_price * (1.0 - self.sl_pct / 100.0)
+            elif executor:
+                res = {
+                    "success": False,
+                    "error": "strategy bot unavailable — refusing ungated execute_trade",
+                }
+            else:
+                res = {"success": False, "error": "executor unavailable"}
 
-                msg = (
-                    f"🚀 <b>UNIVERSAL MAX-SIZE {side_str} EXECUTED!</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🎯 <b>Asset:</b> {symbol} (Market #{market_idx})\n"
-                    f"⚡ <b>Allocated Margin:</b> 85% (~$4.69 USD)\n"
-                    f"💰 <b>Est. Entry Price:</b> ~${est_price:,.2f}\n"
-                    f"🎯 <b>Take-Profit Target:</b> <code>${tp_price:,.2f} (+{self.tp_pct}%)</code>\n"
-                    f"🛡️ <b>Stop-Loss Guard:</b> <code>${sl_price:,.2f} (-{self.sl_pct}%)</code>\n"
-                    f"🔒 <i>TP Watchdog will automatically exit on target!</i>"
+            if not res.get("success"):
+                err = res.get("error") or "strategy gate rejected"
+                return (
+                    f"🚫 <b>STRATEGY GATE BLOCKED {side_str}</b>\n"
+                    f"🎯 <b>Asset:</b> {symbol}\n"
+                    f"🛑 <b>Reason:</b> {err}",
+                    self.build_main_keyboard(),
                 )
-                return msg, self.build_main_keyboard()
+
+            fill_px = float(res.get("entry_price") or est_price)
+            sized = float(res.get("notional_usd") or res.get("sized_usd") or 0.0)
+            tp_price = fill_px * (1.0 - self.tp_pct / 100.0) if is_short else fill_px * (1.0 + self.tp_pct / 100.0)
+            sl_price = fill_px * (1.0 + self.sl_pct / 100.0) if is_short else fill_px * (1.0 - self.sl_pct / 100.0)
+
+            msg = (
+                f"🚀 <b>STRATEGY {side_str} EXECUTED</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 <b>Asset:</b> {symbol} (Market #{market_idx})\n"
+                f"⚡ <b>Sized (gate):</b> ${sized:,.2f}\n"
+                f"💰 <b>Entry:</b> ~${fill_px:,.2f}\n"
+                f"🎯 <b>TP:</b> <code>${tp_price:,.2f} (+{self.tp_pct}%)</code>\n"
+                f"🛡️ <b>SL:</b> <code>${sl_price:,.2f} (-{self.sl_pct}%)</code>\n"
+                f"🔒 <i>Passed news risk gate (exposure / cooldown / kill)</i>"
+            )
+            return msg, self.build_main_keyboard()
 
         # -------------------------------------------------------------
         # 2. EMERGENCY CLOSE & TP SETTINGS
@@ -1050,8 +1202,7 @@ class LighterTelegramBot:
                 from lighter_db import LighterDBManager
                 db = LighterDBManager()
             stats = db.get_daily_stats()
-            is_paper = self.ctx.get("is_paper_mode", False)
-            msg = format_daily_pnl_report(stats, is_paper_mode=is_paper)
+            msg = format_daily_pnl_report(stats)
             return msg, self.build_main_keyboard()
 
         elif raw in ["/sources", "sources", "menu_sources"]:
@@ -1234,13 +1385,11 @@ class LighterTelegramBot:
                         self.build_main_keyboard(),
                     )
                 results = []
-                is_paper = self.ctx.get("is_paper_mode", False)
                 for r in recs:
                     res = await self.subaccount_mgr.transfer_collateral(
                         from_account_index=r.from_account_index,
                         to_account_index=r.to_account_index,
                         amount_usd=r.amount_usd,
-                        is_paper=is_paper,
                     )
                     status_icon = "✅" if res.get("success") else "❌"
                     results.append(
@@ -1277,9 +1426,9 @@ class LighterTelegramBot:
             return msg, keyboard
 
         elif raw in ["/orchestrator", "orchestrator", "menu_orchestrator"]:
-            orch = self.ctx.get("master_orchestrator")
+            orch = self.ctx.get("master_orchestrator") or self.ctx.get("orchestrator")
             if not orch and MasterProfitOrchestrator:
-                orch = MasterProfitOrchestrator(subaccount_manager=self.subaccount_mgr, is_paper=self.ctx.get("is_paper_mode", False))
+                orch = MasterProfitOrchestrator(subaccount_manager=self.subaccount_mgr)
             if orch:
                 rep = orch.get_summary_report()
                 t = rep.get("telemetry", {})
@@ -2279,6 +2428,24 @@ class LighterTelegramBot:
                 user_id = u["message"]["from"]["id"]
                 text = u["message"]["text"]
 
+                is_live = telegram_live_trading_enabled(self.ctx)
+                if telegram_action_mutates_state(text, self.UNIVERSAL_ALIASES):
+                    ok, deny_msg = authorize_telegram_mutating_action(
+                        user_id, chat_id, is_live=is_live, action=text,
+                    )
+                    if not ok:
+                        await session.post(
+                            f"https://api.telegram.org/bot{self.token}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": deny_msg,
+                                "parse_mode": "HTML",
+                                "reply_markup": self.build_main_keyboard(),
+                            },
+                            timeout=aiohttp.ClientTimeout(total=2.0),
+                        )
+                        return
+
                 # Fire typing indicator concurrently in background
                 asyncio.create_task(
                     session.post(
@@ -2289,7 +2456,7 @@ class LighterTelegramBot:
                 )
 
                 try:
-                    reply_text, keyboard = await self.handle_user_action(text, user_id)
+                    reply_text, keyboard = await self.handle_user_action(text, user_id, chat_id=chat_id)
                 except Exception as ex:
                     logger.error(f"[TG Command Error] {ex}", exc_info=True)
                     reply_text = f"⚠️ <b>Command Execution Error:</b> <code>{ex}</code>"
@@ -2321,6 +2488,22 @@ class LighterTelegramBot:
             elif "message" in u and "voice" in u["message"]:
                 chat_id = u["message"]["chat"]["id"]
                 user_id = u["message"]["from"]["id"]
+                is_live = telegram_live_trading_enabled(self.ctx)
+                ok, deny_msg = authorize_telegram_mutating_action(
+                    user_id, chat_id, is_live=is_live, action="voice",
+                )
+                if not ok:
+                    await session.post(
+                        f"https://api.telegram.org/bot{self.token}/sendMessage",
+                        json={
+                            "chat_id": chat_id,
+                            "text": deny_msg,
+                            "parse_mode": "HTML",
+                            "reply_markup": self.build_main_keyboard(),
+                        },
+                        timeout=aiohttp.ClientTimeout(total=2.0),
+                    )
+                    return
                 if TelegramVoiceCopilot:
                     vc = TelegramVoiceCopilot(copilot_interpreter=self.copilot)
                     res = await vc.handle_voice_message(b"VOICE_NOTE", chat_id)
@@ -2353,9 +2536,27 @@ class LighterTelegramBot:
                 except Exception:
                     pass
 
+                is_live = telegram_live_trading_enabled(self.ctx)
+                if telegram_action_mutates_state(data_action, self.UNIVERSAL_ALIASES):
+                    ok, deny_msg = authorize_telegram_mutating_action(
+                        user_id, chat_id, is_live=is_live, action=data_action,
+                    )
+                    if not ok:
+                        await session.post(
+                            f"https://api.telegram.org/bot{self.token}/sendMessage",
+                            json={
+                                "chat_id": chat_id,
+                                "text": deny_msg,
+                                "parse_mode": "HTML",
+                                "reply_markup": self.build_main_keyboard(),
+                            },
+                            timeout=aiohttp.ClientTimeout(total=2.0),
+                        )
+                        return
+
                 # 2. Process action and get reply text
                 try:
-                    reply_text, keyboard = await self.handle_user_action(data_action, user_id)
+                    reply_text, keyboard = await self.handle_user_action(data_action, user_id, chat_id=chat_id)
                 except Exception as ex:
                     logger.error(f"[TG Callback Error] {ex}", exc_info=True)
                     reply_text = f"⚠️ <b>Action Execution Error:</b> <code>{ex}</code>"

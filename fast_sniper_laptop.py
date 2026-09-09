@@ -151,9 +151,15 @@ class ZeroLatencyLaptopSniper:
             "type": "function"
         }]
         c = self.w3.eth.contract(address=UNISWAP_V3_ROUTER, abi=router_abi)
+        # $100M Market Cap Ceiling Protection:
+        # Total supply = 1,000,000,000. At $100M cap, price = $0.10/token.
+        # At ETH = $2500, 0.10 ETH = $250 = 2,500 tokens minimum (2500 * 10^18 wei).
+        # Any trade yielding fewer tokens means price > $0.10 (MCAP > $100M) and reverts.
+        MIN_AMOUNT_OUT = Web3.to_wei(2500, "ether")
+
         amount_in_wei = Web3.to_wei(SNIPE_AMOUNT_ETH, "ether")
         for fee in [100, 500, 3000, 10000]:
-            params = (WETH, TARGET_TOKEN, fee, self.wallet_address, amount_in_wei, 0, 0)
+            params = (WETH, TARGET_TOKEN, fee, self.wallet_address, amount_in_wei, MIN_AMOUNT_OUT, 0)
             self.precalculated_calldata[fee] = c.encode_abi("exactInputSingle", [params])
 
         # Pre-encode Aerodrome router swap calldata
@@ -181,8 +187,8 @@ class ZeroLatencyLaptopSniper:
         aero_c = self.w3.eth.contract(address=AERODROME_ROUTER, abi=aero_abi)
         routes = [(WETH, TARGET_TOKEN, False, AERODROME_FACTORY)]
         deadline = int(time.time()) + 1800
-        self.precalculated_calldata[999999] = aero_c.encode_abi("swapExactETHForTokens", [0, routes, self.wallet_address, deadline])
-        logger.info("Pre-encoded swap calldata for Uniswap V3 and Aerodrome [volatile pair]")
+        self.precalculated_calldata[999999] = aero_c.encode_abi("swapExactETHForTokens", [MIN_AMOUNT_OUT, routes, self.wallet_address, deadline])
+        logger.info(f"Pre-encoded swap calldata for Uniswap V3 and Aerodrome with $100M MCAP ceiling (minOut={MIN_AMOUNT_OUT})")
 
     async def init_session(self):
         # TCP Keep-Alive + Pool of 100 + DNS Caching enabled

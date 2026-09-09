@@ -23,6 +23,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv(override=False)
+
 from news_sources import RawNewsRecord, canonical_url, stable_hash
 
 logger = logging.getLogger("PokeNewsAgent")
@@ -60,66 +64,31 @@ class PokeAINewsAgentCluster:
         self.api_url = (api_url or DEFAULT_POKE_API_URL).strip()
         self.is_running = False
         self._seen_guids: set = set()
+        self._known_upbit_krw_markets: set = set()
         
-        # Define 14 specialized Poke AI Sub-Agent Tasks
+        # Helper for ultra-fast Google News real-time RSS search queries
+        def _gnews(query: str, window: str = "1d") -> str:
+            import urllib.parse
+            return f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}+when:{window}&hl=en-US&gl=US&ceid=US:en"
+
+        # Define 14 specialized Poke AI Sub-Agent Tasks with Search + Direct Feeds
         self.tasks: List[PokeAgentTask] = [
             PokeAgentTask(
                 task_id="poke_subagent_twitter_vip",
                 name="Twitter / X VIP Top Breaking Accounts Firehose",
                 category="media",
                 target_urls=[
-                    # Core High-Speed Financial Squawks & News Desks
-                    "https://x.com/DeItaone",
-                    "https://x.com/LiveSquawk",
-                    "https://x.com/StockMKTNewz",
-                    "https://x.com/unusual_whales",
-                    "https://x.com/Benzinga",
-                    "https://x.com/wallstengine",
-                    "https://x.com/FirstSquawk",
-                    "https://x.com/zerohedge",
-                    "https://x.com/Fxhedgers",
-                    "https://x.com/financialjuice",
-                    "https://x.com/WalterBloomberg",
-                    "https://x.com/KobeissiLetter",
-                    # Crypto VIP Breakers & Research Outlets
-                    "https://x.com/WatcherGuru",
-                    "https://x.com/WuBlockchain",
-                    "https://x.com/tier10k",
-                    "https://x.com/Tree_of_Alpha",
-                    "https://x.com/whale_alert",
-                    "https://x.com/lookonchain",
-                    "https://x.com/ArkhamIntel",
-                    "https://x.com/nansen_ai",
-                    "https://x.com/PeckShieldAlert",
-                    "https://x.com/CertiKAlert",
-                    "https://x.com/CoinDesk",
-                    "https://x.com/Cointelegraph",
-                    "https://x.com/TheBlock__",
-                    "https://x.com/DecryptMedia",
-                    "https://x.com/EleanorTerrett",
-                    "https://x.com/JSeyff",
-                    "https://x.com/EricBalchunas",
-                    # Official Top Exchanges & Ecosystems
-                    "https://x.com/binance",
-                    "https://x.com/cz_binance",
-                    "https://x.com/coinbase",
-                    "https://x.com/brian_armstrong",
-                    "https://x.com/upbit_official",
-                    "https://x.com/BithumbOfficial",
-                    "https://x.com/okx",
-                    "https://x.com/Bybit_Official",
-                    "https://x.com/HyperliquidX",
-                    "https://x.com/lighter_xyz",
-                    "https://x.com/solana",
-                    "https://x.com/ethereum",
+                    _gnews("breaking crypto OR bitcoin OR ethereum OR tier10k OR WuBlockchain OR WatcherGuru"),
+                    _gnews("crypto \"just in\" OR \"breaking\" OR \"delist\" OR \"listing\""),
+                    _gnews("crypto ETF approval OR SEC crypto OR Binance listing"),
                 ],
                 keywords=[
                     "just in", "breaking", "list", "listing", "krw", "won", "trading open",
                     "futures", "delist", "beat", "miss", "earnings", "guidance", "fda", "sec",
                     "etf", "whale", "transferred", "inflow", "outflow", "surge", "plunge", "fed",
-                    "rate cut", "rate hike", "cpi", "tariffs", "opec"
+                    "rate cut", "rate hike", "cpi", "tariffs", "opec", "crypto", "bitcoin", "solana"
                 ],
-                interval_seconds=3.0,
+                interval_seconds=4.0,
                 trust_score=0.97,
             ),
             PokeAgentTask(
@@ -127,10 +96,11 @@ class PokeAINewsAgentCluster:
                 name="Korean Exchanges (Upbit & Bithumb) KRW Real-Time Sentinel",
                 category="exchange",
                 target_urls=[
+                    _gnews("upbit listing OR upbit krw OR bithumb listing OR bithumb krw"),
                     "https://api-manager.upbit.com/api/v1/notices",
                     "https://feed.bithumb.com/notice",
                 ],
-                keywords=["market", "digital asset", "trading", "krw", "won", "add"],
+                keywords=["market", "digital asset", "trading", "krw", "won", "add", "listing", "upbit", "bithumb"],
                 interval_seconds=4.0,
                 trust_score=0.98,
             ),
@@ -140,8 +110,9 @@ class PokeAINewsAgentCluster:
                 category="exchange",
                 target_urls=[
                     "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageSize=5&pageNo=1",
+                    _gnews("binance will list OR binance launchpool OR binance megadrop"),
                 ],
-                keywords=["launchpool", "megadrop", "will list", "new spot trading", "airdrop"],
+                keywords=["launchpool", "megadrop", "will list", "new spot trading", "airdrop", "listing"],
                 interval_seconds=5.0,
                 trust_score=0.98,
             ),
@@ -150,10 +121,10 @@ class PokeAINewsAgentCluster:
                 name="Coinbase Asset Listings & Experimental Roadmap",
                 category="exchange",
                 target_urls=[
-                    "https://blog.coinbase.com/feed",
+                    _gnews("coinbase listing OR coinbase adds OR coinbase crypto OR coinbase roadmap"),
                 ],
-                keywords=["added", "roadmap", "trading", "listing", "asset"],
-                interval_seconds=6.0,
+                keywords=["added", "roadmap", "trading", "listing", "asset", "coinbase", "token", "crypto"],
+                interval_seconds=5.0,
                 trust_score=0.97,
             ),
             PokeAgentTask(
@@ -161,10 +132,10 @@ class PokeAINewsAgentCluster:
                 name="OKX & Bybit Fast Spot / Perp Listings Sentinel",
                 category="exchange",
                 target_urls=[
-                    "https://www.okx.com/api/v5/support/announcements",
                     "https://api.bybit.com/v5/announcements/index",
+                    _gnews("bybit listing OR okx listing OR bybit perp"),
                 ],
-                keywords=["list", "listing", "perp", "spot", "usdt"],
+                keywords=["list", "listing", "perp", "spot", "usdt", "okx", "bybit"],
                 interval_seconds=5.0,
                 trust_score=0.96,
             ),
@@ -174,9 +145,10 @@ class PokeAINewsAgentCluster:
                 category="regulator",
                 target_urls=[
                     "https://www.sec.gov/news/pressreleases.rss",
+                    _gnews("sec crypto OR bitcoin etf approval OR crypto lawsuit dismissed"),
                 ],
-                keywords=["approval", "etf", "order", "settlement", "clearance", "dismissed"],
-                interval_seconds=10.0,
+                keywords=["approval", "etf", "order", "settlement", "clearance", "dismissed", "sec", "crypto"],
+                interval_seconds=8.0,
                 trust_score=0.99,
             ),
             PokeAgentTask(
@@ -184,10 +156,11 @@ class PokeAINewsAgentCluster:
                 name="Arkham & Lookonchain Smart Money & ETF Inflow Tracker",
                 category="research",
                 target_urls=[
+                    _gnews("bitcoin whale OR crypto whale transferred OR bitcoin etf inflow"),
                     "https://farside.co.uk/bitcoin-etf-flow/",
                 ],
-                keywords=["inflow", "whale", "bought", "deposit", "etf", "blackrock"],
-                interval_seconds=10.0,
+                keywords=["inflow", "whale", "bought", "deposit", "etf", "blackrock", "transferred", "arkham"],
+                interval_seconds=8.0,
                 trust_score=0.95,
             ),
             PokeAgentTask(
@@ -195,9 +168,9 @@ class PokeAINewsAgentCluster:
                 name="CoinGlass & Hyperliquid Real-Time Liquidation Cascade Radar",
                 category="research",
                 target_urls=[
-                    "https://coinglass.com/api/liquidations",
+                    _gnews("crypto liquidations OR bitcoin short squeeze OR liquidation cascade"),
                 ],
-                keywords=["liquidation", "cascade", "short squeeze", "long squeeze", "100m"],
+                keywords=["liquidation", "cascade", "short squeeze", "long squeeze", "millions", "liquidated"],
                 interval_seconds=6.0,
                 trust_score=0.93,
             ),
@@ -206,9 +179,10 @@ class PokeAINewsAgentCluster:
                 name="Benzinga Real-Time US Equities & Tech Earnings Wire",
                 category="media",
                 target_urls=[
-                    "https://www.benzinga.com/feeds/rss/news",
+                    _gnews("site:benzinga.com earnings OR guidance OR beat OR revenue"),
+                    _gnews("earnings beat OR revenue beat OR guidance raised NVDA OR TSLA OR PLTR OR AAPL"),
                 ],
-                keywords=["beat", "earnings", "guidance", "fda", "merger", "acquisition", "nvda", "tsla", "aapl", "pltr"],
+                keywords=["beat", "earnings", "guidance", "fda", "merger", "acquisition", "nvda", "tsla", "aapl", "pltr", "revenue", "benzinga"],
                 interval_seconds=5.0,
                 trust_score=0.94,
             ),
@@ -230,8 +204,9 @@ class PokeAINewsAgentCluster:
                 category="media",
                 target_urls=[
                     "https://finance.yahoo.com/news/rssindex",
+                    _gnews("NVDA OR TSLA OR PLTR OR ASML OR TSM stock OR earnings OR revenue"),
                 ],
-                keywords=["asml", "tsm", "nvda", "orcl", "pltr", "soars", "jumps", "record", "revenue"],
+                keywords=["asml", "tsm", "nvda", "orcl", "pltr", "soars", "jumps", "record", "revenue", "stock", "shares"],
                 interval_seconds=5.0,
                 trust_score=0.92,
             ),
@@ -242,8 +217,9 @@ class PokeAINewsAgentCluster:
                 target_urls=[
                     "https://www.federalreserve.gov/feeds/press_all.xml",
                     "https://www.ecb.europa.eu/rss/press.html",
+                    _gnews("federal reserve rate cut OR rate hike OR inflation CPI"),
                 ],
-                keywords=["interest rate", "rate cut", "rate hike", "cpi", "inflation", "dovish", "hawkish", "fomc"],
+                keywords=["interest rate", "rate cut", "rate hike", "cpi", "inflation", "dovish", "hawkish", "fomc", "fed"],
                 interval_seconds=8.0,
                 trust_score=0.99,
             ),
@@ -253,6 +229,7 @@ class PokeAINewsAgentCluster:
                 category="media",
                 target_urls=[
                     "https://oilprice.com/rss/main",
+                    _gnews("crude oil OPEC production cut OR gold jumps OR wheat supply"),
                 ],
                 keywords=["opec", "crude", "oil", "wheat", "gold", "production cut", "supply", "inventory"],
                 interval_seconds=8.0,
@@ -317,51 +294,62 @@ class PokeAINewsAgentCluster:
         if "upbit" in task.task_id:
             records.extend(await self._poll_upbit_api(task, now_dt))
             records.extend(await self._poll_bithumb_api(task, now_dt))
+            records.extend(await self._poll_rss_feed(task, now_dt))
         elif "binance" in task.task_id:
             records.extend(await self._poll_binance_api(task, now_dt))
+            records.extend(await self._poll_rss_feed(task, now_dt))
         elif "okx" in task.task_id:
             records.extend(await self._poll_bybit_api(task, now_dt))
-        elif "stock" in task.task_id or "commodities" in task.task_id or "forex" in task.task_id:
+            records.extend(await self._poll_rss_feed(task, now_dt))
+        else:
+            # Covers twitter_vip, coinbase_roadmap, sec_regulatory, whales_etf, liquidations, stock, commodities, forex
             records.extend(await self._poll_rss_feed(task, now_dt))
 
         return records
 
     async def _poll_rss_feed(self, task: PokeAgentTask, now_dt: datetime) -> List[RawNewsRecord]:
-        """Polls institutional stock, macro, and news outlets via fast async parsing."""
+        """Polls institutional stock, macro, search queries and news outlets via fast async parsing."""
         records: List[RawNewsRecord] = []
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "application/rss+xml, application/xml, text/xml, application/json",
         }
         import feedparser
         import aiohttp
 
+        connector = aiohttp.TCPConnector(ssl=False)
         for url in task.target_urls:
+            # Skip pure social media profile links that cannot be parsed via RSS
+            if "x.com" in url or "twitter.com" in url:
+                continue
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=4.5)) as resp:
                         if resp.status == 200:
                             content = await resp.text()
                             feed = feedparser.parse(content)
-                            for entry in feed.entries[:5]:
-                                title = entry.get("title", "")
-                                link = entry.get("link", "")
-                                summary = entry.get("summary", "")
+                            for entry in feed.entries[:8]:
+                                title = str(entry.get("title", "")).strip()
+                                link = str(entry.get("link", "")).strip()
+                                summary = str(entry.get("summary", "")).strip()
+                                if not title:
+                                    continue
                                 guid = f"{task.task_id}_{link or title}"
                                 if guid in self._seen_guids:
                                     continue
                                 self._seen_guids.add(guid)
 
-                                # Check keywords
+                                # Check keywords or accept if it's a dedicated search query feed
                                 text_full = f"{title} {summary}".lower()
-                                if any(k in text_full for k in task.keywords):
+                                is_dedicated_search = "news.google.com/rss/search" in url
+                                if is_dedicated_search or any(k in text_full for k in task.keywords):
                                     records.append(
                                         RawNewsRecord(
                                             source_id=task.task_id,
                                             publisher=task.name,
                                             title=title,
-                                            body=summary,
-                                            url=link,
+                                            body=summary or title,
+                                            url=link or url,
                                             guid=guid,
                                             published_at=now_dt,
                                             ingested_at=now_dt,
@@ -371,22 +359,67 @@ class PokeAINewsAgentCluster:
                                         )
                                     )
                                     logger.info("🚨 [Poke Sub-Agent: %s] Breaking Alert: %s", task.name[:25], title)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[RSS Poll Transient %s]: %s", task.task_id, e)
         return records
 
     async def _poll_upbit_api(self, task: PokeAgentTask, now_dt: datetime) -> List[RawNewsRecord]:
-        """Polls official Upbit announcements API for instant Korean won market additions."""
+        """Polls official Upbit announcements API and market catalog for instant KRW additions."""
         records: List[RawNewsRecord] = []
-        url = "https://api-manager.upbit.com/api/v1/notices?page=1&per_page=5&thread_name=general"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "application/json",
             "Accept-Language": "ko,en-US;q=0.9",
         }
+        import aiohttp
+        connector = aiohttp.TCPConnector(ssl=False)
+        
+        # 1. Market catalog diffing for instantaneous listing detection
         try:
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
+            market_url = "https://api.upbit.com/v1/market/all?isDetails=false"
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(market_url, headers=headers, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
+                    if resp.status == 200:
+                        markets_data = await resp.json()
+                        current_krw = {
+                            m.get("market") for m in markets_data 
+                            if isinstance(m, dict) and str(m.get("market", "")).startswith("KRW-")
+                        }
+                        if not self._known_upbit_krw_markets:
+                            self._known_upbit_krw_markets = current_krw
+                        else:
+                            new_listings = current_krw - self._known_upbit_krw_markets
+                            if new_listings:
+                                for symbol in new_listings:
+                                    coin = symbol.replace("KRW-", "")
+                                    title = f"[Upbit New KRW Market Listing] {coin} added to KRW pair"
+                                    guid = f"upbit_market_{symbol}"
+                                    if guid not in self._seen_guids:
+                                        self._seen_guids.add(guid)
+                                        records.append(
+                                            RawNewsRecord(
+                                                source_id="upbit_market_catalog",
+                                                publisher="Upbit Korea Official",
+                                                title=title,
+                                                body=title,
+                                                url=f"https://upbit.com/exchange?code=CRIX.UPBIT.{symbol}",
+                                                guid=guid,
+                                                published_at=now_dt,
+                                                ingested_at=now_dt,
+                                                trust_score=0.99,
+                                                category="exchange",
+                                                raw={"poke_subagent": task.task_id, "market": symbol, "coin": coin},
+                                            )
+                                        )
+                                        logger.info("🚨 [Poke Sub-Agent: Upbit] NEW KRW LISTING DETECTED: %s", title)
+                                self._known_upbit_krw_markets.update(new_listings)
+        except Exception as e:
+            logger.debug("[Upbit Catalog Poll Transient]: %s", e)
+
+        # 2. Upbit Notices API
+        url = "https://api-manager.upbit.com/api/v1/notices?page=1&per_page=5&thread_name=general"
+        try:
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=4.0)) as resp:
                     if resp.status == 200:
                         data = await resp.json()

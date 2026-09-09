@@ -3,12 +3,12 @@ autobot.py — Autonomous Web Account Registration Agent (CLI entry point)
 ========================================================================
 
 Usage:
-    python autobot/autobot.py <url> [options]
+    python -m autobot <url> [options]
 
 Examples:
-    python autobot/autobot.py https://reddit.com
-    python autobot/autobot.py https://discord.com --timeout 180
-    python autobot/autobot.py https://example.com --no-login --cleanup
+    python -m autobot https://reddit.com
+    python -m autobot https://discord.com --timeout 180
+    python -m autobot https://example.com --no-login --cleanup
 
 The agent will:
   1. Generate a disposable email address
@@ -31,9 +31,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env or .env.autobot if present
-load_dotenv(dotenv_path=Path(".env"))
-load_dotenv(dotenv_path=Path(".env.autobot"), override=False)
+# Autobot-only env — do not load trading root .env into the Playwright process
+load_dotenv(dotenv_path=Path(".env.autobot"))
 
 from .reporter     import AutobotResult, print_report
 from .tempmail     import TempMailProvider
@@ -115,7 +114,6 @@ class Autobot:
                             pass
                         # Persist to credentials.json
                         save_result(result)
-                        await mail_provider.close()
                         return result
 
                 except _BlockerError as exc:
@@ -130,7 +128,6 @@ class Autobot:
                         result.screenshot = str(shot_path)
                     except Exception:
                         pass
-                    await mail_provider.close()
                     save_result(result)
                     return result   # Do NOT retry blockers
 
@@ -214,10 +211,15 @@ class Autobot:
         log.info("Filling registration form…")
         filler  = FormFiller(browser)
         try:
-            await filler.fill(fm, creds)
+            filled = await filler.fill(fm, creds)
         except RuntimeError as exc:
             # FormFiller raises RuntimeError on blocker fields
             raise _BlockerError(str(exc)) from exc
+
+        if not filled:
+            result.status = "FAILED"
+            result.notes  = "Form fill/submit failed"
+            raise RuntimeError("Form fill/submit failed")
 
         # ── Step 6: Post-submit CAPTCHA check ────────────────────────────────
         if await browser.detect_captcha():
@@ -235,11 +237,18 @@ class Autobot:
         try:
             verified = await verifier.verify(timeout=self.timeout)
         except RuntimeError as exc:
+            result.status = "FAILED"
             result.notes = f"Email verification failed: {exc}"
             log.warning("Email verification failed: %s", exc)
-            verified = False
+            raise RuntimeError(result.notes) from exc
 
-        result.notes = "Email verified." if verified else "Email verification unclear — proceeding."
+        if not verified:
+            result.status = "FAILED"
+            result.notes = "Email verification failed or unclear"
+            log.warning("Email verification did not succeed")
+            raise RuntimeError(result.notes)
+
+        result.notes = "Email verified."
 
         # ── Step 8: Login confirmation ───────────────────────────────────────
         if not self.skip_login:
@@ -270,10 +279,10 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python autobot/autobot.py https://reddit.com
-  python autobot/autobot.py https://example.com --timeout 180
-  python autobot/autobot.py https://example.com --no-login --headless false
-  python autobot/autobot.py https://example.com --cleanup
+  python -m autobot https://reddit.com
+  python -m autobot https://example.com --timeout 180
+  python -m autobot https://example.com --no-login --headless false
+  python -m autobot https://example.com --cleanup
 """,
     )
     parser.add_argument("url",             help="Target website URL")

@@ -204,7 +204,7 @@ class NewsConfirmationEngine:
             _db = _LDB()
             _hist_wr = _db.win_rate_for(
                 event_type=event_type,
-                asset=getattr(event, "primary_entity", "") or "",
+                asset=(event.entities[0] if event.entities else ""),
                 lookback_days=90,
             )
             if _hist_wr is not None:
@@ -235,7 +235,11 @@ class NewsConfirmationEngine:
             return False
         members = self._clusters.get(event.cluster_id, [])
         independent_sources = {member.source_id for member in members}
-        if not require_two_sources(event, len(independent_sources), self.min_sources):
+        # confirmation_threshold raises the floor for high-stakes types (exploit/listing/...).
+        # NEWS_MIN_SOURCES / NewsPipeline(min_sources=1) stays valid for paper tests:
+        # require_two_sources still admits a single tier-1 / high-score source.
+        needed = confirmation_threshold(event.event_type, self.min_sources)
+        if not require_two_sources(event, len(independent_sources), needed):
             return False
         return event.confidence >= 0.65 and event.materiality >= 0.40
 

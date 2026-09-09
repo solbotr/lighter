@@ -57,9 +57,10 @@ class AutonomousProfitHarvestingDaemon:
         """Sets the baseline capital benchmark for an account."""
         self.baseline_collateral[account_index] = max(1.0, amount_usd)
 
-    async def run_harvest_cycle(self, is_paper: bool = False) -> List[HarvestExecution]:
+    async def run_harvest_cycle(self) -> List[HarvestExecution]:
         """
         Evaluates Sniper (#737649) and MM (#281474976497685) shards for harvestable profits.
+        Always performs live on-chain collateral transfers.
         """
         self.last_run_time = time.time()
         executions: List[HarvestExecution] = []
@@ -81,12 +82,11 @@ class AutonomousProfitHarvestingDaemon:
                     harvest_amount = round(excess * 0.50, 2)  # Harvest 50% of profit, retain 50% for compounding
                     retained_amount = round(current_collat - harvest_amount, 2)
 
-                    # Execute transfer
+                    # Execute live transfer
                     res = await self.subaccount_manager.transfer_collateral(
                         from_account_index=acc_idx,
                         to_account_index=self.treasury_account_index,
                         amount_usd=harvest_amount,
-                        is_paper=is_paper,
                     )
 
                     if res.get("success"):

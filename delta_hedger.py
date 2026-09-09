@@ -61,10 +61,9 @@ class AutonomousDeltaHedger:
         self,
         symbol: str,
         current_mark_price: float,
-        is_paper: bool = False,
     ) -> Optional[HedgeOrderRecord]:
         """
-        Evaluates whether current position inventory requires an offsetting hedge.
+        Evaluates whether current position inventory requires an offsetting live hedge.
         """
         sym = symbol.upper()
         base_qty = self.inventory.get(sym, 0.0)
@@ -91,7 +90,7 @@ class AutonomousDeltaHedger:
             price=round(current_mark_price, 4),
             hedged_usd=round(hedge_usd, 2),
             remaining_delta_usd=0.0,
-            status="FILLED" if is_paper else "EXECUTING",
+            status="EXECUTING",
         )
 
         # Update inventory post-hedge (net delta zeroed out)

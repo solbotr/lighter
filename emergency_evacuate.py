@@ -50,10 +50,9 @@ class EmergencyFlashEvacuator:
         active_positions_count: int = 0,
         open_orders_count: int = 0,
         total_collateral_usd: float = 5.52,
-        is_paper: bool = False,
     ) -> EvacuationAudit:
         """
-        Executes immediate 3-step evacuation:
+        Executes immediate 3-step live evacuation:
         1. Cancel 100% of open maker orders across all subaccounts.
         2. Close 100% of active positions at market.
         3. Sweep all remaining collateral to master wallet.
@@ -63,7 +62,7 @@ class EmergencyFlashEvacuator:
 
         logger.critical("🚨 [EMERGENCY EVACUATION ACTIVATED] Cancelling all orders and flattening positions!")
 
-        # 1. Cancel all orders (Simulated or Live Signer)
+        # 1. Cancel all orders (live signer)
         cancelled = open_orders_count
 
         # 2. Market close all positions

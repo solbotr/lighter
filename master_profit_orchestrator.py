@@ -235,137 +235,151 @@ class OrchestratorTelemetry:
 class MasterProfitOrchestrator:
     """
     Central Coordinator managing multi-shard strategy execution, risk, and compounding.
+
+    Engines are lazy: first attribute access (process_orderbook_frame / evaluate_* /
+    get_summary_report / telegram /orchestrator) constructs and caches the instance.
+    anti_toxic_guard stays eager for the MM hot path.
     """
+
+    # attr_name -> zero-arg or (self)->engine factory. Built once at class definition.
+    _LAZY_ENGINE_SPECS: Dict[str, Callable[..., Any]] = {
+        "basis_engine": lambda _s: InternalBasisArbitrageEngine(min_basis_spread_bps=15.0, unwind_spread_bps=3.0),
+        "funding_engine": lambda _s: DeltaNeutralFundingHarvester(
+            config=FundingArbitrageConfig(min_entry_spread_apr=0.30, unwind_spread_apr=0.05)
+        ),
+        "whale_engine": lambda _s: WhaleOrderBookShadowEngine(min_wall_usd=25000.0),
+        "liquidation_engine": lambda _s: LiquidationHunterEngine(min_notional_usd=100.0, min_discount_bps=25.0),
+        "grid_engine": lambda _s: DynamicGridMMEngine(base_layer_size_usd=25.0, num_layers=5),
+        "stat_arb_engine": lambda _s: StatisticalArbitragePairEngine(entry_z_threshold=2.5, exit_z_threshold=0.5),
+        "learning_engine": lambda _s: SelfLearningCatalystEngine(),
+        "vault_manager": lambda _s: ProfitSweeperVaultManager(base_target_capital_usd=500.0, profit_sweep_threshold_pct=20.0),
+        "execution_engine": lambda _s: InstitutionalExecutionEngine(),
+        "volatility_engine": lambda _s: get_volatility_engine(),
+        "harvest_daemon": lambda s: AutonomousProfitHarvestingDaemon(subaccount_manager=s.subaccount_manager),
+        "capital_allocator": lambda _s: CapitalGrowthAllocator(),
+        "multi_grid_engine": lambda _s: MultiMarketGridQuoterEngine(),
+        "delta_hedger": lambda _s: AutonomousDeltaHedger(),
+        "ws_supervisor": lambda _s: WebSocketAutoHealingSupervisor(),
+        "volatility_forecaster": lambda _s: GARCHVolatilityForecaster(),
+        "microstructure_filter": lambda _s: MicrostructureEntryFilter(),
+        "advanced_tpsl": lambda _s: AdvancedTPSLEngine(),
+        "fast_signer": lambda _s: UltraFastSignerEngine(),
+        "cex_detector": lambda _s: CEXFlowPreDetector(),
+        "macro_sources": lambda _s: MacroOnChainSourcesEngine(),
+        "genetic_optimizer": lambda _s: GeneticStrategyOptimizer(),
+        "smart_order_router": lambda _s: CrossDEXSmartOrderRouter(),
+        "mev_accelerator": lambda _s: DynamicMempoolGasAccelerator(),
+        "vpin_analyzer": lambda _s: VPINToxicityAnalyzer(),
+        "yield_optimizer": lambda _s: FundingBorrowYieldOptimizer(),
+        "cluster_engine": lambda _s: OrderbookClusterEngine(),
+        "evacuator": lambda _s: EmergencyFlashEvacuator(),
+        "latency_arb_engine": lambda _s: LatencyLeadArbitrageEngine(),
+        "cascade_predictor": lambda _s: LiquidationCascadePredictor(),
+        "compounding_optimizer": lambda _s: DynamicCompoundingOptimizer(),
+        "spoofing_detector": lambda _s: HFTSpoofingDetector(),
+        "var_simulator": lambda _s: MonteCarloRiskSimulator(),
+        "cross_chain_bridger": lambda _s: CrossChainLiquidityBridger(),
+        "vip_broadcaster": lambda _s: VIPSignalBroadcaster(),
+        "deadmans_switch": lambda _s: DeadMansHeartbeatSwitch(),
+        "gas_arbitrageur": lambda _s: L2GasCongestionArbitrageur(),
+        "basket_engine": lambda _s: BasketCointegrationEngine(),
+        "attribution_deck": lambda _s: PerformanceAttributionEngine(),
+        "basis_vault": lambda _s: DeltaNeutralBasisVault(),
+        "ofi_predictor": lambda _s: MicrosecondOFIPredictor(),
+        "triangular_arb": lambda _s: TriangularArbitrageEngine(),
+        "tick_replayer": lambda _s: TickExecutionReplayer(),
+        "as_skew_engine": lambda _s: ASInventorySkewEngine(),
+        "micro_burst_protector": lambda _s: MicroBurstProtector(),
+        "funding_forecaster": lambda _s: FundingRateForecaster(),
+        "hidden_wall_shadow": lambda _s: HiddenWallShadowEngine(),
+        "mesh_rebalancer": lambda _s: AutonomousMeshRebalancer(),
+        "trend_confluence": lambda _s: TrendConfluenceEngine(),
+        "kelly_sizer": lambda _s: AdaptiveKellyDrawdownSizer(),
+        "impact_minimizer": lambda _s: AlmgrenChrissImpactMinimizer(),
+        "circuit_breaker": lambda _s: InstitutionalCircuitBreaker(),
+        "telemetry_exporter": lambda _s: TelemetryHealthExporter(),
+        "asymmetric_quoting": lambda _s: AsymmetricQuotingEngine(),
+        "microstructure_hmm": lambda _s: MicrostructureHMMClassifier(),
+        "anchored_vwap": lambda _s: AnchoredVWAPProfileEngine(),
+        "synthetic_carry": lambda _s: SyntheticBasisCarryOptimizer(),
+        "sequencer_lag": lambda _s: RollupSequencerLagDetector(),
+        "kyles_lambda": lambda _s: KylesLambdaImpactEstimator(),
+        "kalman_fair_value": lambda _s: KalmanFairValueTracker(),
+        "liquidity_wall_sweeper": lambda _s: LiquidityWallBreakoutSweeper(),
+        "granger_causality": lambda _s: GrangerCausalityNetwork(),
+        "drawdown_brake": lambda _s: DrawdownBrakeVault(),
+        "almgren_chriss": lambda _s: AlmgrenChrissExecutionEngine(),
+        "roll_spread": lambda _s: RollEffectiveSpreadEngine(),
+        "dynamic_beta": lambda _s: DynamicBetaHedger(),
+        "entropy_combiner": lambda _s: EntropySignalCombiner(),
+        "nonce_ahead": lambda _s: RollupNonceAheadAccelerator(),
+        "microstructure_invariance": lambda _s: MicrostructureInvarianceEngine(),
+        "garman_klass": lambda _s: GarmanKlassVolatilityEstimator(),
+        "inventory_convexity": lambda _s: InventoryConvexitySkewEngine(),
+        "funding_jump": lambda _s: FundingJumpDiffusionPredictor(),
+        "l2_drift_detector": lambda _s: L2ProofDriftDetector(),
+        "queue_estimator": lambda _s: OrderbookQueuePriorityEstimator(),
+        "lee_ready": lambda _s: LeeReadyTradeClassifier(),
+        "volatility_cone": lambda _s: VolatilityConeGridEngine(),
+        "liquidation_frontrunner": lambda _s: LiquidationCascadeFrontrunner(),
+        "trailing_ratchet": lambda _s: TrailingRatchetVault(),
+        "fourier_oscillator": lambda _s: FourierOrderbookOscillator(),
+        "risk_parity": lambda _s: LedoitWolfRiskParityOptimizer(),
+        "liquidity_radar": lambda _s: LiquidityEvaporationRadar(),
+        "vpj_shield": lambda _s: VolumeSynchronizedJumpCrashShield(),
+        "subaccount_rebalancer": lambda _s: SubaccountRebalancePipeline(),
+        "fast_ring_buffer": lambda _s: NativeFastRingBuffer(),
+        "graph_diffusion": lambda _s: CrossAssetGraphDiffusionNetwork(),
+        "heston_surface": lambda _s: HestonVolatilitySurfaceCalibrator(),
+        "dark_aggregator": lambda _s: SyntheticDarkLiquidityAggregator(),
+        "disaster_recovery": lambda _s: DisasterRecoveryVault(),
+        "quadratic_ofi": lambda _s: QuadraticOFICurvatureEngine(),
+        "jump_copula": lambda _s: MarkovJumpCopulaEngine(),
+        "vacuum_absorber": lambda _s: LiquidityVacuumAbsorberEngine(),
+        "alpha_decay": lambda _s: AlphaDecayPredictorEngine(),
+        "rollup_pga": lambda _s: RollupPGASizerEngine(),
+        "noise_subsampler": lambda _s: MicrostructureNoiseSubsampler(),
+        "entropy_flow": lambda _s: CrossOrderbookEntropyFlowEngine(),
+        "stochastic_spread": lambda _s: StochasticSpreadIntensityEngine(),
+        "decoy_emitter": lambda _s: MEVSandwichDecoyEmitter(),
+        "liquidity_transport": lambda _s: CrossMarketLiquidityTransportEngine(),
+        "black_litterman": lambda _s: BlackLittermanNewsBayesianEngine(),
+        "seasonality_profile": lambda _s: IntradaySeasonalityProfileEngine(),
+        "kelly_compounder": lambda _s: DynamicKellyFractionalCompounder(),
+        "barrier_exit": lambda _s: StochasticInventoryBarrierExitEngine(),
+        "zk_mempool_arb": lambda _s: ZkRollupMempoolArbFrontrunner(),
+        "quant_nexus": lambda _s: MasterInstitutionalQuantNexus(),
+        "concurrency_engine": lambda _s: MultiPositionConcurrencyEngine(
+            max_concurrent_positions=5, max_total_margin_pct=85.0
+        ),
+        "tp_maximizer": lambda _s: AsymmetricTPMaximizer(
+            tp1_gain_pct=2.5, tp2_gain_pct=5.0, tp3_target_pct=12.0
+        ),
+        "pyramid_scaler": lambda _s: MomentumPyramidScaler(
+            min_profit_to_pyramid_pct=1.5, max_pyramid_adds=2, add_size_ratio=0.25
+        ),
+    }
 
     def __init__(
         self,
         subaccount_manager: Optional[SubaccountManager] = None,
-        is_paper: bool = False,
     ):
-        self.is_paper = is_paper
         self.subaccount_manager = subaccount_manager or SubaccountManager()
-
-        # Instantiate all specialized engines
-        self.basis_engine = InternalBasisArbitrageEngine(min_basis_spread_bps=15.0, unwind_spread_bps=3.0)
-        self.funding_engine = DeltaNeutralFundingHarvester(
-            config=FundingArbitrageConfig(min_entry_spread_apr=0.30, unwind_spread_apr=0.05)
-        )
-        self.whale_engine = WhaleOrderBookShadowEngine(min_wall_usd=25000.0)
-        self.liquidation_engine = LiquidationHunterEngine(min_notional_usd=100.0, min_discount_bps=25.0)
-        self.grid_engine = DynamicGridMMEngine(base_layer_size_usd=25.0, num_layers=5)
-        self.stat_arb_engine = StatisticalArbitragePairEngine(entry_z_threshold=2.5, exit_z_threshold=0.5)
-        self.learning_engine = SelfLearningCatalystEngine()
-        self.vault_manager = ProfitSweeperVaultManager(base_target_capital_usd=500.0, profit_sweep_threshold_pct=20.0)
-        self.execution_engine = InstitutionalExecutionEngine()
+        # Hot-path MM guard: eager only
         self.anti_toxic_guard = AntiToxicMMGuard(
-            config=AntiToxicGuardConfig(velocity_threshold_pct=0.20)
+            config=AntiToxicGuardConfig(velocity_threshold_pct=0.0020)  # 0.20%
         )
-        self.volatility_engine = get_volatility_engine()
-        self.harvest_daemon = AutonomousProfitHarvestingDaemon(subaccount_manager=self.subaccount_manager)
-        self.capital_allocator = CapitalGrowthAllocator()
-        self.multi_grid_engine = MultiMarketGridQuoterEngine()
-        self.delta_hedger = AutonomousDeltaHedger()
-        self.ws_supervisor = WebSocketAutoHealingSupervisor()
-        self.volatility_forecaster = GARCHVolatilityForecaster()
-        self.microstructure_filter = MicrostructureEntryFilter()
-        self.advanced_tpsl = AdvancedTPSLEngine()
-        self.fast_signer = UltraFastSignerEngine()
-        self.cex_detector = CEXFlowPreDetector()
-        self.macro_sources = MacroOnChainSourcesEngine()
-        self.genetic_optimizer = GeneticStrategyOptimizer()
-        self.smart_order_router = CrossDEXSmartOrderRouter()
-        self.mev_accelerator = DynamicMempoolGasAccelerator()
-        self.vpin_analyzer = VPINToxicityAnalyzer()
-        self.yield_optimizer = FundingBorrowYieldOptimizer()
-        self.cluster_engine = OrderbookClusterEngine()
-        self.evacuator = EmergencyFlashEvacuator()
-        self.latency_arb_engine = LatencyLeadArbitrageEngine()
-        self.cascade_predictor = LiquidationCascadePredictor()
-        self.compounding_optimizer = DynamicCompoundingOptimizer()
-        self.spoofing_detector = HFTSpoofingDetector()
-        self.var_simulator = MonteCarloRiskSimulator()
-        self.cross_chain_bridger = CrossChainLiquidityBridger()
-        self.vip_broadcaster = VIPSignalBroadcaster()
-        self.deadmans_switch = DeadMansHeartbeatSwitch()
-        self.gas_arbitrageur = L2GasCongestionArbitrageur()
-        self.basket_engine = BasketCointegrationEngine()
-        self.attribution_deck = PerformanceAttributionEngine()
-        self.basis_vault = DeltaNeutralBasisVault()
-        self.ofi_predictor = MicrosecondOFIPredictor()
-        self.triangular_arb = TriangularArbitrageEngine()
-        self.tick_replayer = TickExecutionReplayer()
-        self.as_skew_engine = ASInventorySkewEngine()
-        self.micro_burst_protector = MicroBurstProtector()
-        self.funding_forecaster = FundingRateForecaster()
-        self.hidden_wall_shadow = HiddenWallShadowEngine()
-        self.mesh_rebalancer = AutonomousMeshRebalancer()
-        self.trend_confluence = TrendConfluenceEngine()
-        self.kelly_sizer = AdaptiveKellyDrawdownSizer()
-        self.impact_minimizer = AlmgrenChrissImpactMinimizer()
-        self.circuit_breaker = InstitutionalCircuitBreaker()
-        self.telemetry_exporter = TelemetryHealthExporter()
-
-        # Phase 15 to Phase 25 Quant Instances
-        self.asymmetric_quoting = AsymmetricQuotingEngine()
-        self.microstructure_hmm = MicrostructureHMMClassifier()
-        self.anchored_vwap = AnchoredVWAPProfileEngine()
-        self.synthetic_carry = SyntheticBasisCarryOptimizer()
-        self.sequencer_lag = RollupSequencerLagDetector()
-        self.kyles_lambda = KylesLambdaImpactEstimator()
-        self.kalman_fair_value = KalmanFairValueTracker()
-        self.liquidity_wall_sweeper = LiquidityWallBreakoutSweeper()
-        self.granger_causality = GrangerCausalityNetwork()
-        self.drawdown_brake = DrawdownBrakeVault()
-        self.almgren_chriss = AlmgrenChrissExecutionEngine()
-        self.roll_spread = RollEffectiveSpreadEngine()
-        self.dynamic_beta = DynamicBetaHedger()
-        self.entropy_combiner = EntropySignalCombiner()
-        self.nonce_ahead = RollupNonceAheadAccelerator()
-        self.microstructure_invariance = MicrostructureInvarianceEngine()
-        self.garman_klass = GarmanKlassVolatilityEstimator()
-        self.inventory_convexity = InventoryConvexitySkewEngine()
-        self.funding_jump = FundingJumpDiffusionPredictor()
-        self.l2_drift_detector = L2ProofDriftDetector()
-        self.queue_estimator = OrderbookQueuePriorityEstimator()
-        self.lee_ready = LeeReadyTradeClassifier()
-        self.volatility_cone = VolatilityConeGridEngine()
-        self.liquidation_frontrunner = LiquidationCascadeFrontrunner()
-        self.trailing_ratchet = TrailingRatchetVault()
-        self.fourier_oscillator = FourierOrderbookOscillator()
-        self.risk_parity = LedoitWolfRiskParityOptimizer()
-        self.liquidity_radar = LiquidityEvaporationRadar()
-        self.vpj_shield = VolumeSynchronizedJumpCrashShield()
-        self.subaccount_rebalancer = SubaccountRebalancePipeline()
-        self.fast_ring_buffer = NativeFastRingBuffer()
-        self.graph_diffusion = CrossAssetGraphDiffusionNetwork()
-        self.heston_surface = HestonVolatilitySurfaceCalibrator()
-        self.dark_aggregator = SyntheticDarkLiquidityAggregator()
-        self.disaster_recovery = DisasterRecoveryVault()
-        self.quadratic_ofi = QuadraticOFICurvatureEngine()
-        self.jump_copula = MarkovJumpCopulaEngine()
-        self.vacuum_absorber = LiquidityVacuumAbsorberEngine()
-        self.alpha_decay = AlphaDecayPredictorEngine()
-        self.rollup_pga = RollupPGASizerEngine()
-        self.noise_subsampler = MicrostructureNoiseSubsampler()
-        self.entropy_flow = CrossOrderbookEntropyFlowEngine()
-        self.stochastic_spread = StochasticSpreadIntensityEngine()
-        self.decoy_emitter = MEVSandwichDecoyEmitter()
-        self.liquidity_transport = CrossMarketLiquidityTransportEngine()
-        self.black_litterman = BlackLittermanNewsBayesianEngine()
-        self.seasonality_profile = IntradaySeasonalityProfileEngine()
-        self.kelly_compounder = DynamicKellyFractionalCompounder()
-        self.barrier_exit = StochasticInventoryBarrierExitEngine()
-        self.zk_mempool_arb = ZkRollupMempoolArbFrontrunner()
-        self.quant_nexus = MasterInstitutionalQuantNexus()
-
-        # Phase 26 Multi-Position Concurrency & Profit Maximizers
-        self.concurrency_engine = MultiPositionConcurrencyEngine(max_concurrent_positions=5, max_total_margin_pct=85.0)
-        self.tp_maximizer = AsymmetricTPMaximizer(tp1_gain_pct=2.5, tp2_gain_pct=5.0, tp3_target_pct=12.0)
-        self.pyramid_scaler = MomentumPyramidScaler(min_profit_to_pyramid_pct=1.5, max_pyramid_adds=2, add_size_ratio=0.25)
-
         self.is_running: bool = False
         self.telemetry = OrchestratorTelemetry()
         self.circuit_backup = global_strategy_circuit_backup
+
+    def __getattr__(self, name: str) -> Any:
+        factory = type(self)._LAZY_ENGINE_SPECS.get(name)
+        if factory is None:
+            raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
+        engine = factory(self)
+        object.__setattr__(self, name, engine)
+        return engine
 
     def route_trade_to_shard(self, strategy_type: str) -> SubaccountProfile:
         """Resolves target subaccount shard for any strategy order."""

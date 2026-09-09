@@ -138,6 +138,31 @@ def test_zkrollup_mempool_arb():
 def test_master_quant_nexus():
     nexus = MasterInstitutionalQuantNexus(portfolio_usd=740.86)
     telemetry = nexus.get_system_telemetry()
-    assert telemetry.active_quant_engines_count == 125
-    assert telemetry.nexus_state == "ALL_SYSTEMS_OPTIMAL"
-    assert telemetry.total_pipeline_latency_us < 50.0
+    assert telemetry.active_quant_engines_count == 0
+    assert telemetry.nexus_state == "UNKNOWN"
+    assert telemetry.daily_sharpe_ratio == 0.0
+    assert telemetry.total_volume_farmed_usd == 0.0
+    assert telemetry.total_portfolio_usd == 740.86
+    assert telemetry.total_pipeline_latency_us == 0.0
+
+
+def test_master_quant_nexus_registry_and_overrides():
+    nexus = MasterInstitutionalQuantNexus(
+        portfolio_usd=100.0,
+        engine_registry=["a", "b", "c"],
+    )
+    configured = nexus.get_system_telemetry()
+    assert configured.active_quant_engines_count == 3
+    assert configured.nexus_state == "CONFIGURED"
+
+    displayed = nexus.get_system_telemetry(
+        active_engines=8,
+        health="ALL_SYSTEMS_OPTIMAL",
+        daily_sharpe_ratio=1.25,
+        total_volume_farmed_usd=50.0,
+    )
+    assert displayed.active_quant_engines_count == 8
+    assert displayed.nexus_state == "ALL_SYSTEMS_OPTIMAL"
+    assert displayed.daily_sharpe_ratio == 1.25
+    assert displayed.total_volume_farmed_usd == 50.0
+    assert displayed.total_portfolio_usd == 100.0

@@ -1,0 +1,7 @@
+# Minimal Prometheus config for local compose.
+# Scrape nothing critical by default; add job targets when metrics endpoints exist.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs: []

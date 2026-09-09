@@ -19,7 +19,7 @@ def event(confidence=0.9):
     )
 
 
-def test_paper_gate_reserves_and_releases():
+def test_gate_reserves_and_releases():
     gate = LighterNewsRiskGate(live=False)
     decision = asyncio.run(gate.approve(event(), MarketSnapshot("ETH", 2500), 25, confirmed=False))
     assert decision.approved
@@ -59,9 +59,21 @@ def test_kill_switch_blocks_live():
 
 
 def test_cli_live_enables_execution():
+    from settings import get_settings
     from lighter_news_risk import live_execution_allowed
+
+    os.environ.pop("NEWS_KILL_SWITCH", None)
+    os.environ.pop("DRY_RUN_DEFAULT", None)
+    get_settings.cache_clear()
     assert live_execution_allowed(False) is False
     assert live_execution_allowed(True) is True
+
+    # Dry-run env is leftover compat only; it must not gate live fills.
+    os.environ["DRY_RUN_DEFAULT"] = "true"
+    get_settings.cache_clear()
+    assert live_execution_allowed(True) is True
+    os.environ.pop("DRY_RUN_DEFAULT", None)
+    get_settings.cache_clear()
 
 
 def test_cooldown_applies_only_after_fill():

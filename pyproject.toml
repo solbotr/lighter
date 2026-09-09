@@ -1,0 +1,23 @@
+[project]
+name = "peaceful-bohr"
+version = "0.1.0"
+description = "Lighter DEX news sniper and related trading tooling (flat layout)"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# Keep existing flat layout: packages are top-level *.py modules, not a src/ tree.
+# Dependencies stay in requirements.txt for Docker/pip -r compatibility.
+
+[tool.pytest.ini_options]
+# Trading suite is primary; mirror pytest.ini for tools that read pyproject only.
+testpaths = ["tests", "autobot/tests"]
+asyncio_mode = "auto"
+addopts = "-p no:pytest_ethereum"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

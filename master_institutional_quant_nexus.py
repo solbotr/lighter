@@ -2,21 +2,9 @@
 """
 Master Institutional Quant Nexus (master_institutional_quant_nexus.py)
 ======================================================================
-The Central Unified Super-Orchestrator synthesizing all 125+ institutional quantitative modules:
-- Microstructure Noise Filters (TSRV)
-- Transfer Entropy Flow
-- CIR Stochastic Spread Dynamics
-- MEV Anti-Sandwich Decoys
-- Wasserstein Liquidity Transport
-- Black-Litterman Bayesian Portfolio
-- Intraday Diurnal Normalization
-- Dynamic Fractional Kelly Compounder
-- First-Exit Brownian Barrier Exits
-- ZK-Rollup Pre-Confirmation Arb
-
-Execution Guarantees:
-- Dispatches multi-engine signals in < 0.1ms
-- Provides full telemetry reports for the Telegram MiniApp and Bot interface
+Telemetry aggregator for quant modules. Reports only values the caller
+supplies (portfolio, engine census, health, Sharpe, volume). Unmeasured
+fields stay 0 / UNKNOWN instead of invented headlines.
 """
 
 from __future__ import annotations
@@ -24,7 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional, Sequence
 
 logger = logging.getLogger("QuantNexus")
 
@@ -33,7 +21,7 @@ logger = logging.getLogger("QuantNexus")
 class NexusSystemTelemetry:
     active_quant_engines_count: int
     total_pipeline_latency_us: float  # Microseconds
-    nexus_state: str  # "ALL_SYSTEMS_OPTIMAL", "ELEVATED_ALPHA", "DEFENSIVE"
+    nexus_state: str  # UNKNOWN / CONFIGURED until real health is supplied
     active_subaccounts_count: int
     total_portfolio_usd: float
     daily_sharpe_ratio: float
@@ -51,24 +39,118 @@ class NexusSystemTelemetry:
 class MasterInstitutionalQuantNexus:
     """
     Unified Master Nexus Coordinator.
+    Defaults are honest zeros / UNKNOWN. Callers may inject live values.
     """
 
-    TOTAL_ENGINES_COUNT = 125
+    def __init__(
+        self,
+        portfolio_usd: float = 0.0,
+        active_engines: Optional[int] = None,
+        engine_registry: Optional[Sequence[Any]] = None,
+        nexus_state: Optional[str] = None,
+        daily_sharpe_ratio: float = 0.0,
+        total_volume_farmed_usd: float = 0.0,
+        total_pipeline_latency_us: float = 0.0,
+        active_subaccounts_count: int = 0,
+        health: Optional[str] = None,
+    ):
+        self.portfolio_usd = float(portfolio_usd)
+        self._active_engines = active_engines
+        self._engine_registry = engine_registry
+        self._nexus_state = nexus_state
+        self._health = health
+        self.daily_sharpe_ratio = float(daily_sharpe_ratio)
+        self.total_volume_farmed_usd = float(total_volume_farmed_usd)
+        self.total_pipeline_latency_us = float(total_pipeline_latency_us)
+        self.active_subaccounts_count = int(active_subaccounts_count)
 
-    def __init__(self, portfolio_usd: float = 740.86):
-        self.portfolio_usd = portfolio_usd
+    def _resolve_engine_count(
+        self,
+        active_engines: Optional[int] = None,
+        engine_registry: Optional[Sequence[Any]] = None,
+    ) -> int:
+        if active_engines is not None:
+            return int(active_engines)
+        if self._active_engines is not None:
+            return int(self._active_engines)
+        registry = engine_registry if engine_registry is not None else self._engine_registry
+        if registry is not None:
+            try:
+                return len(registry)
+            except TypeError:
+                return 0
+        return 0
 
-    def get_system_telemetry(self) -> NexusSystemTelemetry:
-        """
-        Gathers comprehensive telemetry across all quant engines.
-        """
-        telemetry = NexusSystemTelemetry(
-            active_quant_engines_count=self.TOTAL_ENGINES_COUNT,
-            total_pipeline_latency_us=42.5,
-            nexus_state="ALL_SYSTEMS_OPTIMAL",
-            active_subaccounts_count=3,
-            total_portfolio_usd=self.portfolio_usd,
-            daily_sharpe_ratio=4.85,
-            total_volume_farmed_usd=185420.0,
+    def _resolve_nexus_state(
+        self,
+        *,
+        nexus_state: Optional[str] = None,
+        health: Optional[str] = None,
+        active_engines: Optional[int] = None,
+        engine_registry: Optional[Sequence[Any]] = None,
+    ) -> str:
+        supplied = health if health is not None else nexus_state
+        if supplied is None:
+            supplied = self._health if self._health is not None else self._nexus_state
+        if supplied is not None:
+            return supplied
+        configured = (
+            active_engines is not None
+            or self._active_engines is not None
+            or engine_registry is not None
+            or self._engine_registry is not None
         )
-        return telemetry
+        if configured:
+            return "CONFIGURED"
+        return "UNKNOWN"
+
+    def get_system_telemetry(
+        self,
+        *,
+        active_engines: Optional[int] = None,
+        engine_registry: Optional[Sequence[Any]] = None,
+        nexus_state: Optional[str] = None,
+        daily_sharpe_ratio: Optional[float] = None,
+        total_volume_farmed_usd: Optional[float] = None,
+        total_pipeline_latency_us: Optional[float] = None,
+        active_subaccounts_count: Optional[int] = None,
+        health: Optional[str] = None,
+        portfolio_usd: Optional[float] = None,
+    ) -> NexusSystemTelemetry:
+        """
+        Snapshot of supplied telemetry. Unpassed fields keep constructor
+        defaults (0 / UNKNOWN), not decorative placeholders.
+        """
+        engine_count = self._resolve_engine_count(active_engines, engine_registry)
+        return NexusSystemTelemetry(
+            active_quant_engines_count=engine_count,
+            total_pipeline_latency_us=(
+                float(total_pipeline_latency_us)
+                if total_pipeline_latency_us is not None
+                else self.total_pipeline_latency_us
+            ),
+            nexus_state=self._resolve_nexus_state(
+                nexus_state=nexus_state,
+                health=health,
+                active_engines=active_engines,
+                engine_registry=engine_registry,
+            ),
+            active_subaccounts_count=(
+                int(active_subaccounts_count)
+                if active_subaccounts_count is not None
+                else self.active_subaccounts_count
+            ),
+            total_portfolio_usd=(
+                float(portfolio_usd) if portfolio_usd is not None else self.portfolio_usd
+            ),
+            daily_sharpe_ratio=(
+                float(daily_sharpe_ratio)
+                if daily_sharpe_ratio is not None
+                else self.daily_sharpe_ratio
+            ),
+            total_volume_farmed_usd=(
+                float(total_volume_farmed_usd)
+                if total_volume_farmed_usd is not None
+                else self.total_volume_farmed_usd
+            ),
+        )

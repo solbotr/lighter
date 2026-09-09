@@ -51,23 +51,46 @@ def fetch_positions():
         print(f"[FETCH] Error: {e}")
     return None, []
 
+PID_FILE = r"C:\LighterBot\bot.pid"
+SNIPER_LOG = r"C:\LighterBot\sniper_app.log"
+
+
 def get_bot_pid_and_mem():
+    # Prefer bot.pid written by watchdog_supervisor
+    try:
+        if os.path.exists(PID_FILE):
+            raw_pid = open(PID_FILE, encoding="utf-8").read().strip()
+            pid = int(raw_pid)
+            result = subprocess.run(
+                ["powershell", "-Command",
+                 f"$p = Get-Process -Id {pid} -EA SilentlyContinue; "
+                 "if ($p) { [math]::Round($p.WS/1MB,1) }"],
+                capture_output=True, text=True, timeout=10,
+            )
+            mem_raw = (result.stdout or "").strip()
+            if mem_raw:
+                return pid, float(mem_raw)
+    except Exception:
+        pass
+    # Fallback: python process with sniper cmdline, else largest python
     try:
         result = subprocess.run(
             ["powershell", "-Command",
-             "Get-Process python -EA SilentlyContinue | "
-             "Select-Object Id,@{N='MB';E={[math]::Round($_.WS/1MB,1)}} | ConvertTo-Json"],
+             "$procs = Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" -EA SilentlyContinue; "
+             "$hit = $procs | Where-Object { $_.CommandLine -like '*lighter_news_sniper.py*' } | "
+             "Select-Object -First 1; "
+             "if (-not $hit) { $hit = $procs | Sort-Object WorkingSetSize -Descending | Select-Object -First 1 }; "
+             "if ($hit) { "
+             "  $mb = [math]::Round($hit.WorkingSetSize/1MB,1); "
+             "  @{Id=$hit.ProcessId; MB=$mb} | ConvertTo-Json "
+             "}"],
             capture_output=True, text=True, timeout=10
         )
         raw = result.stdout.strip()
         if not raw:
             return None, 0
         data = json.loads(raw)
-        if isinstance(data, dict):
-            data = [data]
-        if data:
-            biggest = max(data, key=lambda x: x.get("MB", 0))
-            return biggest.get("Id"), biggest.get("MB", 0)
+        return data.get("Id"), data.get("MB", 0)
     except Exception:
         pass
     return None, 0

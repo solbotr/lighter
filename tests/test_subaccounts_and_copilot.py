@@ -133,7 +133,7 @@ async def test_subaccount_manager_transfer_collateral():
     mgr.update_state(737649, collateral_usd=10.0, available_margin_usd=10.0)
     mgr.update_state(281474976497685, collateral_usd=2.0, available_margin_usd=2.0)
 
-    res = await mgr.transfer_collateral(737649, 281474976497685, amount_usd=4.0, is_paper=True)
+    res = await mgr.transfer_collateral(737649, 281474976497685, amount_usd=4.0)
     assert res["success"] is True
     assert res["amount_usd"] == 4.0
 
@@ -318,10 +318,13 @@ def mock_executor():
 
 
 @pytest.fixture
-def tg_bot(mock_executor):
+def tg_bot(mock_executor, monkeypatch):
+    monkeypatch.setenv("ADMIN_CHAT_ID", "12345")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "12345")
+    monkeypatch.delenv("DRY_RUN_DEFAULT", raising=False)
+    monkeypatch.delenv("NEWS_KILL_SWITCH", raising=False)
     ctx = {
         "executor": mock_executor,
-        "is_paper_mode": True,
     }
     return LighterTelegramBot(ctx)
 
@@ -500,7 +503,7 @@ async def test_ensure_margin_available_jit():
     success = await manager.ensure_margin_available(
         target_account_index=737649,
         required_margin_usd=10.0,
-        is_paper=True,
+        
     )
     assert success is True
     assert manager.states[737649].collateral_usd >= 10.0

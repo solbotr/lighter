@@ -1,0 +1,32 @@
+Stub / telemetry-only engines (not on live sniper hot path)
+============================================================
+These modules exist for institutional/quant branding or offline research.
+MasterProfitOrchestrator may register them lazily; they are not required
+for lighter_news_sniper orderbook / news / execution loops.
+
+zkrollup_mempool_arb_frontrunner.py     — ZkRollupMempoolArbFrontrunner (stub L2 mempool arb)
+mev_sandwich_decoy_emitter.py          — MEVSandwichDecoyEmitter (decoy / adversary poison stub)
+mev_gas_accelerator.py                 — DynamicMempoolGasAccelerator (gas tip stub)
+master_institutional_quant_nexus.py    — MasterInstitutionalQuantNexus (telemetry aggregator only)
+nonce_ahead_accelerator.py             — RollupNonceAheadAccelerator
+l2_proof_drift_detector.py             — L2ProofDriftDetector
+rollup_pga_sizer.py                    — RollupPGASizerEngine
+graph_diffusion_alpha.py               — CrossAssetGraphDiffusionNetwork
+heston_volatility_surface.py           — HestonVolatilitySurfaceCalibrator
+markov_jump_copula.py                  — MarkovJumpCopulaEngine
+black_litterman_news_bayesian.py       — BlackLittermanNewsBayesianEngine
+disaster_recovery_vault.py             — DisasterRecoveryVault
+synthetic_dark_aggregator.py           — SyntheticDarkLiquidityAggregator
+cross_market_liquidity_transport.py    — CrossMarketLiquidityTransportEngine
+cross_chain_liquidity_bridger.py       — CrossChainLiquidityBridger
+gas_congestion_arbitrageur.py          — L2GasCongestionArbitrageur
+tick_execution_replay.py               — TickExecutionReplayer
+performance_attribution_deck.py        — PerformanceAttributionEngine
+telemetry_health_exporter.py           — TelemetryHealthExporter
+
+Orchestrator lazy attrs (stubs / off hot-path unless explicitly accessed):
+  zk_mempool_arb, decoy_emitter, mev_accelerator, quant_nexus,
+  nonce_ahead, l2_drift_detector, rollup_pga, graph_diffusion,
+  heston_surface, jump_copula, black_litterman, disaster_recovery,
+  dark_aggregator, liquidity_transport, cross_chain_bridger,
+  gas_arbitrageur, tick_replayer, attribution_deck, telemetry_exporter

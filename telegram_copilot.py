@@ -49,6 +49,70 @@ class CopilotIntentType(str, Enum):
     UNKNOWN = "UNKNOWN"                          # Unrecognized input
 
 
+_MUTATING_COPILOT_INTENTS = {
+    CopilotIntentType.SNIPE_TRADE,
+    CopilotIntentType.BREAKEVEN,
+    CopilotIntentType.PARTIAL_CLOSE,
+    CopilotIntentType.CLOSE_ALL,
+    CopilotIntentType.CLOSE_POSITION,
+    CopilotIntentType.SET_TP_SL,
+    CopilotIntentType.COLLATERAL_REBALANCE,
+    CopilotIntentType.PAUSE_BOT,
+    CopilotIntentType.RESUME_BOT,
+}
+
+
+def _copilot_admin_allowlist() -> set:
+    parts: List[str] = []
+    for key in ("TELEGRAM_ADMIN_CHAT_ID", "ADMIN_CHAT_ID", "TG_USER_ID"):
+        raw = (os.getenv(key) or "").strip()
+        if raw:
+            parts.extend(raw.split(","))
+    return {p.strip() for p in parts if p.strip()}
+
+
+def _copilot_live_enabled(bot_context: Dict[str, Any]) -> bool:
+    """Always live unless kill switch / dry-run emergency stop is engaged."""
+    if os.getenv("NEWS_KILL_SWITCH", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.getenv("DRY_RUN_DEFAULT", "").lower() in ("1", "true", "yes"):
+        return False
+    return True
+
+
+def _authorize_copilot_mutating(
+    bot_context: Dict[str, Any],
+    intent: CopilotIntentType,
+) -> Tuple[bool, str]:
+    if intent not in _MUTATING_COPILOT_INTENTS:
+        return True, ""
+    user_id = bot_context.get("tg_user_id")
+    chat_id = bot_context.get("tg_chat_id")
+    is_live = _copilot_live_enabled(bot_context)
+    allowlist = _copilot_admin_allowlist()
+    if is_live and not allowlist:
+        logger.warning(
+            "Unauthorized copilot action blocked (live, empty allowlist): user_id=%s intent=%s",
+            user_id,
+            intent.value,
+        )
+        return False, "🚫 <b>Denied</b>: live trading requires an admin allowlist (TELEGRAM_ADMIN_CHAT_ID / ADMIN_CHAT_ID / TG_USER_ID)."
+    if not allowlist:
+        return True, ""
+    candidates = {str(user_id)} if user_id is not None else set()
+    if chat_id is not None:
+        candidates.add(str(chat_id))
+    if candidates & allowlist:
+        return True, ""
+    logger.warning(
+        "Unauthorized copilot action blocked: user_id=%s chat_id=%s intent=%s",
+        user_id,
+        chat_id,
+        intent.value,
+    )
+    return False, "🚫 <b>Unauthorized</b>: your Telegram ID is not on the admin allowlist."
+
+
 @dataclass
 class ParsedCommand:
     """Structured representation of a parsed natural language command."""
@@ -568,10 +632,12 @@ class TelegramAICopilot:
         Executes parsed copilot command against live bot engine, database, and subaccounts.
         Returns formatted Telegram HTML response and interactive keyboard.
         """
+        ok, deny_msg = _authorize_copilot_mutating(bot_context, cmd.intent)
+        if not ok:
+            return deny_msg, (fallback_keyboard_builder() if fallback_keyboard_builder else None)
+
         executor = bot_context.get("executor")
         db = bot_context.get("db")
-        is_paper = bot_context.get("is_paper_mode", False)
-        mode_str = "🧪 PAPER SIMULATION" if is_paper else "⚡ LIVE zkLighter"
 
         # -------------------------------------------------------------
         # 1. HELP & GUIDE
@@ -612,32 +678,54 @@ class TelegramAICopilot:
             # Route to dedicated subaccount shard (Sniper #737649)
             sub_shard = self.subaccount_mgr.route_strategy(SubaccountRole.SNIPER)
 
-            if executor:
-                res = await executor.execute_trade(
+            bot = bot_context.get("bot") or bot_context.get("bot_instance")
+            if bot is not None and hasattr(bot, "execute_strategy_entry"):
+                res = await bot.execute_strategy_entry(
                     asset=symbol,
                     market_index=market_idx,
                     is_ask=is_short,
-                    current_market_price=est_price,
+                    price=est_price,
+                    notional_usd=cmd.amount_usd,
                     custom_tp_pct=cmd.tp_pct or 2.5,
                     reason=f"COPILOT_{side_str}_{symbol}",
+                    entry_mode="copilot",
+                    stop_distance_pct=cmd.sl_pct or 1.5,
+                )
+            else:
+                res = {
+                    "success": False,
+                    "error": "strategy bot unavailable — refusing ungated execute_trade",
+                }
+
+            if not res.get("success"):
+                err = res.get("error") or "strategy gate rejected"
+                return (
+                    f"🚫 <b>COPILOT STRATEGY GATE BLOCKED</b>\n"
+                    f"🎯 <b>Asset:</b> {symbol}\n"
+                    f"🛑 <b>Reason:</b> {err}",
+                    (fallback_keyboard_builder() if fallback_keyboard_builder else None),
                 )
 
             tp_pct = cmd.tp_pct or 2.5
             sl_pct = cmd.sl_pct or 1.5
-            tp_price = est_price * (1.0 - tp_pct / 100.0) if is_short else est_price * (1.0 + tp_pct / 100.0)
-            sl_price = est_price * (1.0 + sl_pct / 100.0) if is_short else est_price * (1.0 - sl_pct / 100.0)
-            size_str = f"${cmd.amount_usd:.2f} USD" if cmd.amount_usd else "Max Margin (~$4.69 USD)"
+            fill_px = float(res.get("entry_price") or est_price)
+            sized = float(res.get("notional_usd") or cmd.amount_usd or 0.0)
+            tp_price = fill_px * (1.0 - tp_pct / 100.0) if is_short else fill_px * (1.0 + tp_pct / 100.0)
+            sl_price = fill_px * (1.0 + sl_pct / 100.0) if is_short else fill_px * (1.0 - sl_pct / 100.0)
+            size_str = f"${sized:.2f} USD (strategy-sized)" if sized else (
+                f"${cmd.amount_usd:.2f} USD" if cmd.amount_usd else "Strategy compound size"
+            )
 
             msg = (
-                f"🚀 <b>COPILOT {side_str} EXECUTED!</b>\n"
+                f"🚀 <b>COPILOT {side_str} (STRATEGY)</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 <b>Asset:</b> {symbol} (Market #{market_idx})\n"
                 f"🏦 <b>Subaccount Shard:</b> #{sub_shard.account_index} ({sub_shard.name})\n"
                 f"⚡ <b>Position Size:</b> {size_str}\n"
-                f"💰 <b>Est. Entry Price:</b> ~${est_price:,.2f}\n"
-                f"🎯 <b>Take-Profit Target:</b> <code>${tp_price:,.2f} (+{tp_pct:.1f}%)</code>\n"
-                f"🛡️ <b>Stop-Loss Guard:</b> <code>${sl_price:,.2f} (-{sl_pct:.1f}%)</code>\n"
-                f"🔒 <i>TP Watchdog actively monitoring tick-by-tick!</i>"
+                f"💰 <b>Entry:</b> ~${fill_px:,.2f}\n"
+                f"🎯 <b>TP:</b> <code>${tp_price:,.2f} (+{tp_pct:.1f}%)</code>\n"
+                f"🛡️ <b>SL:</b> <code>${sl_price:,.2f} (-{sl_pct:.1f}%)</code>\n"
+                f"🔒 <i>Passed news risk gate before submit</i>"
             )
             return msg, (fallback_keyboard_builder() if fallback_keyboard_builder else None)
 
@@ -807,7 +895,7 @@ class TelegramAICopilot:
                 db = LighterDBManager()
             from lighter_telegram import format_daily_pnl_report
             stats = db.get_daily_stats() if hasattr(db, "get_daily_stats") else {}
-            msg = format_daily_pnl_report(stats, is_paper_mode=is_paper)
+            msg = format_daily_pnl_report(stats)
             return msg, (fallback_keyboard_builder() if fallback_keyboard_builder else None)
 
         if cmd.intent == CopilotIntentType.BALANCE_QUERY:

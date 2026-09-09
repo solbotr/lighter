@@ -80,7 +80,7 @@ async def test_profit_harvesting_daemon_cycle():
     # Set baseline at $80 ($20 excess profit -> $10 harvested)
     daemon.set_baseline(737649, 80.0)
 
-    executions = await daemon.run_harvest_cycle(is_paper=True)
+    executions = await daemon.run_harvest_cycle()
     assert len(executions) == 1
     assert executions[0].from_account_index == 737649
     assert executions[0].harvested_usd == 10.0

@@ -18,7 +18,7 @@ async def main():
         print(f"Shard #{idx} ({name}) | Role: {role} | Collateral: ${collat:.4f} | Status: {status}")
     
     print("\n=== LIVE STRATEGY TEST-FIRE ===")
-    orch = MasterProfitOrchestrator(subaccount_manager=mgr, is_paper=True)
+    orch = MasterProfitOrchestrator(subaccount_manager=mgr)
     sniper = orch.route_trade_to_shard("news_catalyst")
     mm = orch.route_trade_to_shard("dynamic_grid_mm")
     arb = orch.route_trade_to_shard("funding_harvester")

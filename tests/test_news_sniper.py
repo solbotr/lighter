@@ -7,6 +7,8 @@ Unit & Integration Tests for Lighter News Catalyst Sniper Bot
 import os
 import sys
 import time
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -19,6 +21,47 @@ from lighter_news_sniper import (
     CatalystSignal,
     unpack_signer_result,
 )
+
+
+def _stub_live_exchange(executor, collateral_usd=100.0):
+    """Mock signer + exchange so execute_trade can fill without paper mode."""
+    import os
+    os.environ.setdefault("SPEED_ASYNC_FILL_CONFIRM", "0")
+    os.environ["SPEED_ASYNC_FILL_CONFIRM"] = "0"
+    os.environ["SPEED_SKIP_VWAP"] = "0"
+    executor.signer_client = MagicMock()
+    executor.fetch_available_collateral_usd = AsyncMock(return_value=collateral_usd)
+    executor._last_cached_collateral = float(collateral_usd)
+    executor._collateral_cache_ts = __import__("time").time()
+    executor.fetch_spread_bps = AsyncMock(return_value=0.0)
+    from depth_vwap_engine import MicrostructureDepthBook
+    executor.fetch_orderbook_depth = AsyncMock(
+        return_value=MicrostructureDepthBook(market_index=0, symbol="ETH")
+    )
+    executor.fetch_account_positions = AsyncMock(return_value=[])
+    executor._submit_live_order = AsyncMock(return_value=("0xtx", None))
+    executor.place_protective_exits = AsyncMock(
+        return_value={"tp": True, "sl": True, "detail": "mocked", "on_book": True}
+    )
+
+    async def _wait(asset, market_index, timeout=20.0):
+        return {
+            "symbol": asset,
+            "market_index": market_index,
+            "size": 0.03,
+            "entry_price": 2600.0,
+            "side": "BUY/LONG",
+        }
+
+    executor.wait_for_exchange_position = AsyncMock(side_effect=_wait)
+
+    async def _close(pos, current_market_price, qty=None):
+        if qty is not None and qty > 0:
+            pos.size_eth = max(0.0, pos.size_eth - float(qty))
+        return True
+
+    executor.close_position = _close
+    return executor
 
 
 def test_catalyst_classification_trump_hyperliquid():
@@ -114,10 +157,11 @@ def test_max_size_calculation():
     assert order_size == 0.032
 
 
-def test_paper_execution_pipeline():
-    """Test full execution pipeline in paper simulation mode."""
+def test_mocked_live_execution_pipeline():
+    """Full execution pipeline with mocked signer/exchange (no paper fills)."""
     import asyncio
-    executor = MaxSizeExecutionEngine(is_live=False)
+    executor = MaxSizeExecutionEngine(is_live=True)
+    _stub_live_exchange(executor)
 
     signal = CatalystSignal(
         news_id="test_123",
@@ -131,7 +175,7 @@ def test_paper_execution_pipeline():
 
     result = asyncio.run(executor.execute_catalyst_snipe(signal, current_market_price=2600.0))
     assert result["success"] is True
-    assert result["mode"] == "PAPER_SIMULATION"
+    assert result["mode"] == "LIVE_MAINNET"
     assert result["side"] == "BUY/LONG"
     assert result["size_eth"] > 0
 
@@ -189,18 +233,28 @@ def test_live_execute_fails_closed_without_wallet(monkeypatch):
     import asyncio
     monkeypatch.delenv("WALLET_ADDRESS", raising=False)
     executor = MaxSizeExecutionEngine(is_live=True)
-    result = asyncio.run(executor.execute_trade(current_market_price=2500.0))
+    result = asyncio.run(executor.execute_trade(current_market_price=2500.0, strategy_approved=True))
     assert result["success"] is False
     assert "collateral" in result["error"]
 
 
+def test_execute_trade_requires_strategy_gate(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("REQUIRE_STRATEGY_GATE", "1")
+    executor = MaxSizeExecutionEngine(is_live=True)
+    result = asyncio.run(executor.execute_trade(current_market_price=2500.0))
+    assert result["success"] is False
+    assert "strategy gate" in result["error"]
+
+
 def test_one_position_per_market():
     import asyncio
-    executor = MaxSizeExecutionEngine(is_live=False)
-    first = asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2600.0))
+    executor = MaxSizeExecutionEngine(is_live=True)
+    _stub_live_exchange(executor)
+    first = asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2600.0, strategy_approved=True))
     assert first["success"] is True
     assert first["asset"] == "ETH"
-    second = asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2610.0))
+    second = asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2610.0, strategy_approved=True))
     assert second["success"] is False
     assert "already" in second["error"]
 
@@ -259,9 +313,11 @@ def test_classify_orphan_and_stale_orders():
     ) == "stale_entry"
 
 
-def test_paper_cancel_orders_is_noop():
+def test_cancel_orders_without_signer_is_noop():
     import asyncio
     executor = MaxSizeExecutionEngine(is_live=False)
+    executor.fetch_account_positions = AsyncMock(return_value=[])
+    executor.fetch_open_orders = AsyncMock(return_value=[])
     assert asyncio.run(executor.cancel_open_orders(1, [2, 3])) == 0
     assert asyncio.run(executor.harvest_exchange_exits({"ETH": 2600.0})) == []
     care = asyncio.run(executor.care_open_orders({"ETH": 2600.0}))
@@ -406,11 +462,12 @@ def test_match_exchange_position_uses_symbol():
     assert executor.match_exchange_position(books, "AAPL", 0) is None
 
 
-def test_paper_flatten_confirms():
+def test_flatten_confirms():
     import asyncio
-    executor = MaxSizeExecutionEngine(is_live=False)
-    asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2600.0))
-    asyncio.run(executor.execute_trade(asset="BTC", current_market_price=70000.0))
+    executor = MaxSizeExecutionEngine(is_live=True)
+    _stub_live_exchange(executor)
+    asyncio.run(executor.execute_trade(asset="ETH", current_market_price=2600.0, strategy_approved=True))
+    asyncio.run(executor.execute_trade(asset="BTC", current_market_price=70000.0, strategy_approved=True))
     closed = asyncio.run(executor.close_all_positions({"ETH": 2610.0, "BTC": 70100.0}))
     assert closed == 2
     assert all(not p.is_active for p in executor.active_positions.values())
@@ -469,6 +526,11 @@ def test_partial_tp_watchdog_scales_then_keeps_runner():
     assert events[0]["close_qty"] == 2.0
     assert events[1]["close_qty"] == 1.0
     assert not events[0]["full"] and not events[1]["full"]
+    async def _close(pos, price, qty=None):
+        if qty is not None:
+            pos.size_eth = max(0.0, pos.size_eth - float(qty))
+        return True
+    executor.close_position = _close
     asyncio.run(executor.close_position(pos, 104.5, qty=events[0]["close_qty"]))
     asyncio.run(executor.close_position(pos, 104.5, qty=events[1]["close_qty"]))
     pos.tp_hits = 2

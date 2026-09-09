@@ -38,7 +38,7 @@ import requests
 
 class DeBankClient:
     def __init__(self, access_key: str = None):
-        self.access_key = access_key or os.getenv("DEBANK_ACCESS_KEY", "e59adf0fae2212ca38d1bb8324feb9af3287b3dc")
+        self.access_key = access_key or os.getenv("DEBANK_ACCESS_KEY", "")
         self.base_url = "https://pro-openapi.debank.com"
         
     def _request(self, endpoint: str, params: dict = None) -> dict:
