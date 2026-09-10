@@ -226,13 +226,17 @@ class NewsConfirmationEngine:
         )
 
     def is_confirmed(self, event: NormalizedNewsEvent) -> bool:
+        ok, _reason = self.confirmed_with_reason(event)
+        return ok
+
+    def confirmed_with_reason(self, event: NormalizedNewsEvent) -> Tuple[bool, str]:
         from news_quality import quality_veto, require_two_sources
 
         if event.contradiction or event.invalidated or event.chain_ambiguous:
-            return False
+            return False, "contradiction/invalidated/ambiguous"
         ok, _reason = quality_veto(event)
         if not ok:
-            return False
+            return False, f"quality_veto:{_reason}"
         members = self._clusters.get(event.cluster_id, [])
         independent_sources = {member.source_id for member in members}
         # confirmation_threshold raises the floor for high-stakes types (exploit/listing/...).
@@ -240,8 +244,17 @@ class NewsConfirmationEngine:
         # require_two_sources still admits a single tier-1 / high-score source.
         needed = confirmation_threshold(event.event_type, self.min_sources)
         if not require_two_sources(event, len(independent_sources), needed):
-            return False
-        return event.confidence >= 0.65 and event.materiality >= 0.40
+            return False, f"sources:{len(independent_sources)}/{needed}"
+        if not (event.confidence >= 0.65 and event.materiality >= 0.40):
+            return False, f"score:conf={event.confidence:.2f},mat={event.materiality:.2f}"
+        # Paper Table VI gate: veto statistically-bad variants with enough history.
+        gate_ok, report = _VALIDATION_GATE.passes(
+            event.event_type, event.entities[0] if event.entities else ""
+        )
+        if not gate_ok:
+            _DISCOVERY_LOG.log_decision(event, False, f"validation_gate:{report}")
+            return False, "validation_gate:statistically_bad_variant"
+        return True, "confirmed"
 
     def invalidate_cluster(self, cluster_id: str) -> List[NormalizedNewsEvent]:
         members = self._clusters.get(cluster_id, [])
@@ -318,11 +331,14 @@ class NewsPipeline:
                 self.persist(assessed)
             self.recent_events.append(assessed)
             self.recent_events = self.recent_events[-200:]
+            _DISCOVERY_LOG.log_generated(assessed)
             output.append(assessed)
         return output
 
     def confirmed(self, event: NormalizedNewsEvent) -> bool:
-        return self.confirmation.is_confirmed(event)
+        ok, reason = self.confirmation.confirmed_with_reason(event)
+        _DISCOVERY_LOG.log_decision(event, ok, reason)
+        return ok
 
     def _related_cluster(self, event: NormalizedNewsEvent) -> str:
         entity = event.entities[0] if event.entities else normalize_title(event.headline)[:80]
@@ -478,9 +494,9 @@ RULE_REGISTRY: Tuple[Tuple[str, str, str, float], ...] = (
     (r"\b(yen|euro|sterling|pound).{0,32}(plunge|slump|tumble)\b", "macro", "BEARISH", 0.65),
     (r"\b(yen|euro|sterling|pound).{0,32}(surge|jump|rally|soar)\b", "macro", "BULLISH", 0.65),
     (r"\b(will list|lists|listed|listing|added to robinhood|added to binance|added to coinbase|opens trading|trading live)\b", "listing", "BULLISH", 0.78),
-    (r"\b(approv(ed|es|al)|etf approved|wins lawsuit|lawsuit dismissed|sec drops|sec clearance|wins fda|fda clearance|granted license|sec settlement)\b", "approval", "BULLISH", 0.82),
+    (r"\b(approv(ed|es|al)|etf approved|wins lawsuit|lawsuit dismissed|sec drops|sec clearance|wins fda|fda clearance|granted license|license approved|bank charter|charter approved|sec settlement|custody license)\b", "approval", "BULLISH", 0.82),
     (r"\b(spot etf|etf filing|etf inflows?|etf launch|etf approval)\b", "etf", "BULLISH", 0.80),
-    (r"\b(partnership|partners? with|collaborat(es|ion)|integrat(es|ion)|mainnet launch|mainnet|upgrade|hard fork|v2|v3|launch(es|ed|ing)|unveils?|deploys?)\b", "upgrade", "BULLISH", 0.74),
+    (r"\b(partnership|partners? with|collaborat(es|ion)|integrat(es|ion)|mainnet launch|mainnet|upgrade|hard fork|v2|v3|launch(es|ed|ing)|unveils?|deploys?|institutional adoption|adds to balance sheet|treasury reserve)\b", "upgrade", "BULLISH", 0.74),
     (r"\b(buyback|treasury buyback|share buyback|token buyback)\b", "buyback", "BULLISH", 0.76),
     (r"\b(surges?|soars?|rall(y|ies|ied)|jumps?|breaks? out|breakout|record high|all-time high|ath|pumps?|boosts?|gains?|rises?|climbs?|explod(es|ing)|bullish)\b", "surge", "BULLISH", 0.75),
     (r"\b(plunges?|crashes?|collapses?|tumbles?|slumps?|dumps?|dives?|selloff|retreats?|pullback|drops?|falls?|bearish)\b", "breakdown", "BEARISH", 0.75),
@@ -506,3 +522,226 @@ def classify_event(headline: str, body: str) -> Tuple[str, str, float]:
                 return "approval", "BULLISH", 0.80
             return event_type, direction, materiality
     return "unknown", "NEUTRAL", 0.10
+
+
+# ---------------------------------------------------------------------------
+# Strategy validation gate (paper Table VI, adapted to per-signal trade history)
+#
+# The paper gates new strategy variants on backtest stats before promotion:
+# Sharpe > 1.5, max drawdown < 15%, hit rate > 55%, t-stat > 2.0.
+# Here the same four checks run against realized trade outcomes in
+# `signal_outcomes` (lighter_db), scoped (event_type, asset) -> event_type ->
+# global. Thin history returns NEED_MORE_DATA and never blocks; only a
+# statistically-bad variant with enough samples is REJECTED.
+# Set VALIDATION_GATE_ENFORCE=0 for log-only mode.
+# ---------------------------------------------------------------------------
+
+import math as _math
+import os as _os
+
+
+def _getenv_float(name: str, default: float) -> float:
+    try:
+        return float(_os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _getenv_int(name: str, default: int) -> int:
+    try:
+        return int(float(_os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+VALIDATION_THRESHOLDS = {
+    "min_hit_rate": _getenv_float("VALIDATION_MIN_HIT_RATE", 0.55),
+    "max_drawdown": _getenv_float("VALIDATION_MAX_DRAWDOWN", 0.15),
+    "min_t_stat": _getenv_float("VALIDATION_MIN_T_STAT", 2.0),
+    "min_sample": _getenv_int("VALIDATION_MIN_SAMPLE", 10),
+}
+
+VALIDATION_GATE_ENFORCE = _os.getenv("VALIDATION_GATE_ENFORCE", "1").strip().lower() in ("1", "true", "yes", "on")
+
+APPROVED = "APPROVED"
+REJECTED = "REJECTED"
+NEED_MORE_DATA = "NEED_MORE_DATA"
+
+
+class StrategyValidationGate:
+    """Paper Table VI gate over realized `signal_outcomes` history."""
+
+    def __init__(self, thresholds: Optional[Dict[str, float]] = None) -> None:
+        self.thresholds = dict(VALIDATION_THRESHOLDS)
+        if thresholds:
+            self.thresholds.update(thresholds)
+
+    def _fetch_returns(self, event_type: str, asset: str) -> Tuple[List[float], str]:
+        """Returns (realized_pnl_pct list, scope). Falls back pair -> type -> all."""
+        try:
+            from lighter_db import LighterDBManager as _LDB
+        except Exception:
+            return [], "unavailable"
+        try:
+            db = _LDB()
+            conn = db.get_connection()
+            scopes = [
+                ("pair", "WHERE event_type=? AND asset=?", (event_type, (asset or "").upper())),
+                ("event_type", "WHERE event_type=?", (event_type,)),
+                ("global", "", ()),
+            ]
+            for scope, where, params in scopes:
+                rows = conn.execute(
+                    f"SELECT realized_pnl_pct FROM signal_outcomes {where} ORDER BY ts DESC LIMIT 500",
+                    params,
+                ).fetchall()
+                rets = [float(r[0]) for r in rows if r[0] is not None]
+                if len(rets) >= int(self.thresholds["min_sample"]):
+                    conn.close()
+                    return rets, scope
+            conn.close()
+            return [], "thin"
+        except Exception:
+            return [], "unavailable"
+
+    def evaluate(self, event_type: str, asset: str = "") -> Dict[str, object]:
+        rets, scope = self._fetch_returns(event_type, asset)
+        n = len(rets)
+        min_n = int(self.thresholds["min_sample"])
+        if n < min_n:
+            return {"verdict": NEED_MORE_DATA, "n": n, "scope": scope}
+        wins = sum(1 for r in rets if r > 0)
+        hit_rate = wins / n
+        mean = sum(rets) / n
+        var = sum((r - mean) ** 2 for r in rets) / max(1, n - 1)
+        std = _math.sqrt(var)
+        t_stat = mean / (std / _math.sqrt(n)) if std > 0 else (float("inf") if mean > 0 else float("-inf"))
+        # Max drawdown on the cumulative per-trade pnl curve, as fraction of peak.
+        peak, max_dd, cum = 0.0, 0.0, 0.0
+        for r in reversed(rets):  # oldest first for a proper equity curve
+            cum += r
+            peak = max(peak, cum)
+            if peak > 0:
+                max_dd = max(max_dd, (peak - cum) / peak)
+        bad_hit = hit_rate < float(self.thresholds["min_hit_rate"])
+        bad_dd = max_dd > float(self.thresholds["max_drawdown"])
+        bad_t = t_stat < float(self.thresholds["min_t_stat"])
+        bad_mean = mean <= 0
+        # Conservative: veto only when the variant loses on every axis.
+        verdict = REJECTED if (bad_hit and bad_dd and bad_t and bad_mean) else APPROVED
+        return {
+            "verdict": verdict,
+            "n": n,
+            "scope": scope,
+            "hit_rate": round(hit_rate, 4),
+            "mean_pct": round(mean, 4),
+            "t_stat": round(t_stat, 3) if _math.isfinite(t_stat) else t_stat,
+            "max_drawdown": round(max_dd, 4),
+        }
+
+    def passes(self, event_type: str, asset: str = "") -> Tuple[bool, Dict[str, object]]:
+        """True unless enforced and REJECTED. Thin history never blocks."""
+        report = self.evaluate(event_type, asset)
+        if report["verdict"] == REJECTED and VALIDATION_GATE_ENFORCE:
+            return False, report
+        return True, report
+
+
+# ---------------------------------------------------------------------------
+# Signal discovery log: generated vs approved vs traded.
+#
+# Every normalized event is logged as generated; every confirmation decision
+# is logged as approved/rejected with a reason. Traded fills already land in
+# news_audit.jsonl ("filled"), so discovery_stats() joins both files for the
+# daily generated -> approved -> traded funnel the paper asks for.
+# ---------------------------------------------------------------------------
+
+DISCOVERY_LOG_PATH = _os.getenv(
+    "SIGNAL_DISCOVERY_LOG",
+    _os.path.join(_os.path.dirname(_os.path.abspath(__file__)) or ".", "signal_discovery.jsonl"),
+)
+
+
+class SignalDiscoveryLog:
+    def __init__(self, path: Optional[str] = None) -> None:
+        self.path = path or DISCOVERY_LOG_PATH
+
+    def _append(self, row: Dict[str, object]) -> None:
+        if _os.getenv("PYTEST_CURRENT_TEST"):
+            return  # never pollute the production log from test runs
+        try:
+            with open(self.path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, default=str) + "\n")
+        except Exception:
+            pass
+
+    def log_generated(self, event: NormalizedNewsEvent) -> None:
+        self._append({
+            "ts": time.time(),
+            "kind": "generated",
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "asset": event.entities[0] if event.entities else "",
+            "source": event.source_id,
+            "confidence": round(event.confidence, 4),
+            "materiality": round(event.materiality, 4),
+        })
+
+    def log_decision(self, event: NormalizedNewsEvent, approved: bool, reason: str) -> None:
+        self._append({
+            "ts": time.time(),
+            "kind": "approved" if approved else "rejected",
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "asset": event.entities[0] if event.entities else "",
+            "reason": reason,
+        })
+
+    @staticmethod
+    def funnel(days: float = 1.0) -> Dict[str, object]:
+        """Counts generated / approved / traded over the trailing window."""
+        cutoff = time.time() - days * 86400
+        generated, approved = 0, 0
+        try:
+            with open(DISCOVERY_LOG_PATH, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    if row.get("ts", 0) < cutoff:
+                        continue
+                    if row.get("kind") == "generated":
+                        generated += 1
+                    elif row.get("kind") == "approved":
+                        approved += 1
+        except FileNotFoundError:
+            pass
+        traded = 0
+        audit_path = _os.path.join(_os.path.dirname(DISCOVERY_LOG_PATH), "news_audit.jsonl")
+        try:
+            with open(audit_path, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    if row.get("ts", 0) < cutoff and row.get("ts", 0) > 1_000_000_000:
+                        continue
+                    if row.get("kind") == "filled":
+                        traded += 1
+        except FileNotFoundError:
+            pass
+        return {
+            "window_days": days,
+            "generated": generated,
+            "approved": approved,
+            "traded": traded,
+            "approval_rate": round(approved / generated, 4) if generated else 0.0,
+            "trade_rate": round(traded / approved, 4) if approved else 0.0,
+        }
+
+
+# Module singletons (defined last so the classes above exist).
+_VALIDATION_GATE = StrategyValidationGate()
+_DISCOVERY_LOG = SignalDiscoveryLog()

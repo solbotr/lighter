@@ -65,6 +65,13 @@ class PokeAINewsAgentCluster:
         self.is_running = False
         self._seen_guids: set = set()
         self._known_upbit_krw_markets: set = set()
+
+        try:
+            from x_monitor import XPostMonitorTool
+            self.x_monitor = XPostMonitorTool()
+        except Exception as _xe:
+            self.x_monitor = None
+            logger.debug("XPostMonitor init fallback: %s", _xe)
         
         # Helper for ultra-fast Google News real-time RSS search queries
         def _gnews(query: str, window: str = "1d") -> str:
@@ -291,7 +298,21 @@ class PokeAINewsAgentCluster:
         now_dt = datetime.now(timezone.utc)
 
         # 1. Specialized fast fetchers based on task category
-        if "upbit" in task.task_id:
+        if "twitter_vip" in task.task_id and self.x_monitor is not None:
+            # First query high-speed VIP posts via treg routed endpoint treg.x.user.posts (fallback tikhub/xapi)
+            try:
+                connector = aiohttp.TCPConnector(ssl=False)
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    x_records = await self.x_monitor.poll_all_accounts(session)
+                    for xr in x_records:
+                        if xr.guid not in self._seen_guids:
+                            self._seen_guids.add(xr.guid)
+                            records.append(xr)
+                            logger.info("🚨 [Poke Sub-Agent: %s via %s] Breaking Tweet: %s", task.name[:20], xr.raw.get("route", "treg"), xr.title[:60])
+            except Exception as _xerr:
+                logger.debug("Twitter VIP treg poll exception: %s", _xerr)
+            records.extend(await self._poll_rss_feed(task, now_dt))
+        elif "upbit" in task.task_id:
             records.extend(await self._poll_upbit_api(task, now_dt))
             records.extend(await self._poll_bithumb_api(task, now_dt))
             records.extend(await self._poll_rss_feed(task, now_dt))
@@ -302,7 +323,7 @@ class PokeAINewsAgentCluster:
             records.extend(await self._poll_bybit_api(task, now_dt))
             records.extend(await self._poll_rss_feed(task, now_dt))
         else:
-            # Covers twitter_vip, coinbase_roadmap, sec_regulatory, whales_etf, liquidations, stock, commodities, forex
+            # Covers coinbase_roadmap, sec_regulatory, whales_etf, liquidations, stock, commodities, forex
             records.extend(await self._poll_rss_feed(task, now_dt))
 
         return records

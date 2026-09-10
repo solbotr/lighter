@@ -533,7 +533,10 @@ class MaxSizeExecutionEngine:
 
         try:
             session = await self._http_session()
-            async with session.get(f"{self.base_url}/api/v1/orderBooks") as resp:
+            async with session.get(f"{self.base_url}/api/v1/orderBookDetails") as resp:
+                if resp.status != 200:
+                    async with session.get(f"{self.base_url}/api/v1/orderBooks") as resp2:
+                        resp = resp2
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     books = data.get("order_book_details") or data.get("order_books") or data.get("data") or []
@@ -2014,15 +2017,10 @@ class MaxSizeExecutionEngine:
                 reason=f"NEWS: {signal.headline[:40]}",
                 entry_mode="news",
             )
-        return await self.execute_trade(
-            asset=signal.target_asset,
-            market_index=signal.market_index,
-            is_ask=is_ask,
-            current_market_price=current_market_price,
-            notional_usd=budget,
-            reason=f"NEWS: {signal.headline[:40]}",
-            strategy_approved=True,
-        )
+        # Maker-checker: never self-approve. Without the bound strategy bot
+        # (which owns the risk gate) there is no approval path, so refuse.
+        logger.error("REFUSING catalyst entry for %s — no strategy bot bound", signal.target_asset)
+        return {"success": False, "error": "no strategy bot bound — catalyst entry refused without risk approval"}
 
     async def close_all_positions(self, current_market_price: Any = 2650.0) -> int:
         """Emergency flatten using each asset's own mark. Confirms flat on live."""
@@ -2297,7 +2295,7 @@ class NewsIngestionManager:
             self.registry,
             self._handle_records,
             db_path=db_path,
-            max_concurrency=int(os.getenv("NEWS_FETCH_CONCURRENCY", "16")),
+            max_concurrency=int(os.getenv("NEWS_FETCH_CONCURRENCY", "24")),
         )
         self.treenews_ws = TreeNewsWebSocketClient(on_records=self._handle_records)
         try:
@@ -2565,6 +2563,11 @@ class LighterNewsSniperBot:
     def set_kill(self, on: bool) -> None:
         if on:
             self.kill_file.write_text("1", encoding="utf-8")
+            try:
+                from email_notifier import email_send_kill_alert
+                email_send_kill_alert("manual/API kill switch")
+            except Exception:
+                pass
         elif self.kill_file.exists():
             self.kill_file.unlink()
             self._kill_action_latched = False
@@ -2800,6 +2803,11 @@ class LighterNewsSniperBot:
                         logger.error("[KILL] Exchange flatten %s failed: %s", symbol, e)
 
             self._kill_action_latched = True
+            try:
+                from email_notifier import email_send_kill_alert
+                email_send_kill_alert("auto flatten engaged")
+            except Exception:
+                pass
         finally:
             self._kill_flatten_in_flight = False
         return True
@@ -2898,22 +2906,22 @@ class LighterNewsSniperBot:
                 snapshot = fetched
                 self.tickers.update(fetched)
         if snapshot is None or snapshot.price <= 0:
-            fallback_snapshot = self.tickers.snapshot_or_env(market)
-            if fallback_snapshot and fallback_snapshot.price > 0:
-                fallback_snapshot.timestamp = time.time()
-                snapshot = fallback_snapshot
+            # Direct depth book mid-price fallback
+            depth_book = await self.executor.fetch_orderbook_depth(market.market_index)
+            if depth_book and depth_book.mid_price > 0:
+                snapshot = MarketSnapshot(
+                    asset=market.symbol,
+                    price=depth_book.mid_price,
+                    spread_bps=depth_book.spread_bps,
+                    timestamp=time.time(),
+                    market_index=market.market_index,
+                )
                 self.tickers.update(snapshot)
             else:
-                # Direct depth book mid-price fallback
-                depth_book = await self.executor.fetch_orderbook_depth(market.market_index)
-                if depth_book and depth_book.mid_price > 0:
-                    snapshot = MarketSnapshot(
-                        asset=market.symbol,
-                        price=depth_book.mid_price,
-                        spread_bps=depth_book.spread_bps,
-                        timestamp=time.time(),
-                        market_index=market.market_index,
-                    )
+                fallback_snapshot = self.tickers.snapshot_or_env(market)
+                if fallback_snapshot and fallback_snapshot.price > 0:
+                    fallback_snapshot.timestamp = time.time()
+                    snapshot = fallback_snapshot
                     self.tickers.update(snapshot)
                 else:
                     # Final fallback to last known price in tickers
@@ -3128,6 +3136,19 @@ class LighterNewsSniperBot:
                     tg_send(card)
             except Exception as tge:
                 logger.warning("Telegram alert error: %s", tge)
+            try:
+                from email_notifier import email_send_trade_alert
+                email_send_trade_alert(
+                    asset=market.symbol,
+                    side=side,
+                    price=float(result.get("entry_price") or snapshot.price),
+                    notional_usd=float(result.get("notional_usd") or 0.0),
+                    tp_price=result.get("tp_target_price"),
+                    sl_price=result.get("sl_price"),
+                    reason=f"{event.event_type}: {event.headline[:80]}",
+                )
+            except Exception as eme:
+                logger.warning("Email alert error: %s", eme)
         finally:
             await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
 
@@ -3336,6 +3357,17 @@ class LighterNewsSniperBot:
                     from lighter_telegram import tg_send
                     from lighter_telegram import format_exit_card
                     tg_send(format_exit_card(ev, flat=exit_submitted))
+                    try:
+                        from email_notifier import email_send_exit_alert
+                        email_send_exit_alert(
+                            asset=ev.get("asset", "?"),
+                            exit_type=str(ev.get("type", "?")),
+                            pnl_usd=float(ev.get("pnl_usd") or 0.0),
+                            pnl_pct=float(ev.get("pnl_pct") or 0.0),
+                            exit_price=float(ev.get("exit_price") or 0.0),
+                        )
+                    except Exception as eme:
+                        logger.warning("Email exit alert error: %s", eme)
                 for retry in self.positions.due_retries():
                     pos = self.positions.positions.get(retry.position_id)
                     if not pos:
@@ -3478,7 +3510,7 @@ class LighterNewsSniperBot:
         open_syms = [p.asset.upper() for p in self.executor.active_positions.values() if p.is_active]
         # First boot: named assets only. Later: also attach feeds for pairs Lighter just listed.
         want = list(dict.fromkeys(open_syms + seed + (new if not first else [])))
-        added = register_ticker_sources(self.news_manager.registry, want, limit=80)
+        added = register_ticker_sources(self.news_manager.registry, want, limit=300)
         logger.info(
             "Universe sync markets=%s new=%s first=%s ticker_feeds=%s",
             len(symbols), new[:12], first, added,

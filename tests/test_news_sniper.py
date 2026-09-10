@@ -173,11 +173,25 @@ def test_mocked_live_execution_pipeline():
         matched_keywords=["trump", "crypto"],
     )
 
+    # Maker-checker: unbound executor must refuse catalyst entry (no self-approval).
+    refused = asyncio.run(executor.execute_catalyst_snipe(signal, current_market_price=2600.0))
+    assert refused["success"] is False
+    assert "risk approval" in refused["error"]
+
+    # Bound strategy bot delegates through the risk-approved entry path.
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    bot = MagicMock()
+    bot.execute_strategy_entry = _AsyncMock(return_value={
+        "success": True, "mode": "LIVE_MAINNET", "side": "BUY/LONG", "size_eth": 0.03,
+    })
+    executor._strategy_bot = bot
     result = asyncio.run(executor.execute_catalyst_snipe(signal, current_market_price=2600.0))
     assert result["success"] is True
     assert result["mode"] == "LIVE_MAINNET"
     assert result["side"] == "BUY/LONG"
     assert result["size_eth"] > 0
+    assert bot.execute_strategy_entry.await_count == 1
 
 
 def test_exit_policy_and_trailing():

@@ -331,7 +331,12 @@ class JSONNewsAdapter:
                 continue
             url = canonical_url(str(item.get("url") or item.get("link") or ""))
             guid = str(item.get("id") or item.get("guid") or url)
-            t_val = item.get("time") or item.get("timestamp") or item.get("publishedAt") or item.get("published") or item.get("updated")
+            t_val = (item.get("time") or item.get("timestamp") or item.get("publishedAt")
+                     or item.get("published") or item.get("updated")
+                     or item.get("first_publish_at") or item.get("publish_at")
+                     or item.get("created_at")
+                     or item.get("createdAt") or item.get("date")
+                     or item.get("datetime") or item.get("published_at"))
             if isinstance(t_val, (int, float)):
                 if t_val > 1e11:
                     t_val = t_val / 1000.0
@@ -742,6 +747,33 @@ def register_ticker_sources(registry: "NewsSourceRegistry", symbols: Iterable[st
     return added
 
 
+def keyed_sources() -> List[NewsSourceConfig]:
+    """Optional paywalled/keyed wires. Each activates only when its env key exists.
+
+    Paste a key into .env and it joins the registry on next restart; unset keys
+    are silently skipped. Free-tier keys suffice for all three.
+    """
+    out: List[NewsSourceConfig] = []
+    finnhub = os.getenv("FINNHUB_API_KEY", "").strip()
+    if finnhub:
+        for category in ("general", "crypto", "forex"):
+            out.append(NewsSourceConfig(
+                f"finnhub_{category}", f"Finnhub {category.title()}",
+                f"https://finnhub.io/api/v1/news?category={category}&token={finnhub}",
+                adapter="json", category="media", trust_score=0.84,
+                interval_seconds=30.0, timeout_seconds=12.0, items_path="",
+            ))
+    cp = os.getenv("CRYPTOPANIC_API_KEY", "").strip()
+    if cp:
+        out.append(NewsSourceConfig(
+            "cryptopanic_pro", "CryptoPanic Pro",
+            f"https://cryptopanic.com/api/v1/posts/?auth_token={cp}&public=true",
+            adapter="json", category="media", trust_score=0.88,
+            interval_seconds=15.0, timeout_seconds=12.0, items_path="results",
+        ))
+    return out
+
+
 def default_sources() -> List[NewsSourceConfig]:
     core = [
         NewsSourceConfig("cointelegraph", "Cointelegraph", "https://cointelegraph.com/rss", trust_score=0.72, timeout_seconds=15.0, fallback_urls=(_gnews("site:cointelegraph.com when:12h"),)),
@@ -957,6 +989,35 @@ def default_sources() -> List[NewsSourceConfig]:
         NewsSourceConfig("beincrypto", "BeInCrypto", "https://beincrypto.com/feed/", trust_score=0.60, interval_seconds=20.0, timeout_seconds=15.0),
         NewsSourceConfig("bitcoincom", "Bitcoin.com", "https://news.bitcoin.com/feed/", trust_score=0.58, interval_seconds=20.0, timeout_seconds=15.0),
         NewsSourceConfig("utoday", "U.Today", "https://u.today/rss", trust_score=0.56, interval_seconds=20.0, timeout_seconds=15.0),
+        # Reddit retail-flow radar (free RSS, no key). Trust kept low and windows
+        # wide: single-source Reddit items can never reach confirmation confidence.
+        NewsSourceConfig("reddit_crypto", "Reddit r/CryptoCurrency", "https://www.reddit.com/r/CryptoCurrency/new/.rss", trust_score=0.50, interval_seconds=180.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        NewsSourceConfig("reddit_btc", "Reddit r/Bitcoin", "https://www.reddit.com/r/Bitcoin/new/.rss", trust_score=0.50, interval_seconds=180.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        NewsSourceConfig("reddit_eth", "Reddit r/ethereum", "https://www.reddit.com/r/ethereum/new/.rss", trust_score=0.50, interval_seconds=180.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        NewsSourceConfig("reddit_sol", "Reddit r/solana", "https://www.reddit.com/r/solana/new/.rss", trust_score=0.48, interval_seconds=240.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        NewsSourceConfig("reddit_wsb", "Reddit r/wallstreetbets", "https://www.reddit.com/r/wallstreetbets/new/.rss", trust_score=0.48, interval_seconds=240.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        NewsSourceConfig("reddit_stocks", "Reddit r/stocks", "https://www.reddit.com/r/stocks/new/.rss", trust_score=0.50, interval_seconds=240.0, timeout_seconds=15.0, max_entries=25, quota_per_minute=2),
+        # Exploit DB + earnings calendar via site-scoped search (same pattern as peers).
+        NewsSourceConfig("rekt_exploits", "Rekt Exploit Database", _gnews("rekt.news (hack OR exploit OR drained) when:12h"), category="research", trust_score=0.90, interval_seconds=15.0, timeout_seconds=12.0),
+        NewsSourceConfig("earnings_whispers", "Earnings Whispers Calendar", _gnews("site:earningswhispers.com (earnings OR beat OR miss OR guidance) when:6h"), category="media", trust_score=0.82, interval_seconds=15.0, timeout_seconds=12.0),
+        # KuCoin direct listing JSON (verified live: top-level items[] with title/summary/publish_at).
+        NewsSourceConfig("kucoin_direct", "KuCoin Listings Direct", "https://www.kucoin.com/_api/cms/articles?page=1&pageSize=10&category=listing", adapter="json", category="exchange", trust_score=0.93, interval_seconds=15.0, timeout_seconds=12.0),
+        # Free-press wave 2 (all verified live 2026-09-10: HTTP 200 + entries).
+        NewsSourceConfig("zerohedge_direct", "ZeroHedge", "https://cms.zerohedge.com/fullrss2.xml", category="media", trust_score=0.80, interval_seconds=15.0, timeout_seconds=12.0),
+        NewsSourceConfig("calculatedrisk", "Calculated Risk", "https://www.calculatedriskblog.com/feeds/posts/default", category="research", trust_score=0.80, interval_seconds=60.0, timeout_seconds=15.0),
+        NewsSourceConfig("bi_markets", "Business Insider Markets", "https://markets.businessinsider.com/rss/news", category="media", trust_score=0.72, interval_seconds=25.0, timeout_seconds=15.0),
+        NewsSourceConfig("ibd_markets", "Investor's Business Daily", "https://www.investors.com/rss", category="media", trust_score=0.70, interval_seconds=30.0, timeout_seconds=15.0),
+        NewsSourceConfig("eth_blog_direct", "Ethereum Foundation Blog", "https://blog.ethereum.org/en/feed.xml", category="official", trust_score=0.95, interval_seconds=60.0, timeout_seconds=15.0, max_entries=10),
+        NewsSourceConfig("solana_blog", "Solana Foundation Blog", "https://solana.com/rss.xml", category="official", trust_score=0.90, interval_seconds=60.0, timeout_seconds=15.0, max_entries=10),
+        NewsSourceConfig("coinbase_blog", "Coinbase Blog", "https://medium.com/feed/@coinbase", category="exchange", trust_score=0.90, interval_seconds=30.0, timeout_seconds=15.0),
+        NewsSourceConfig("glassnode_insights", "Glassnode Insights", "https://insights.glassnode.com/feed", category="research", trust_score=0.85, interval_seconds=30.0, timeout_seconds=15.0),
+        NewsSourceConfig("coingape", "CoinGape", "https://coingape.com/feed/", category="media", trust_score=0.64, interval_seconds=20.0, timeout_seconds=15.0),
+        NewsSourceConfig("zycrypto", "ZyCrypto", "https://zycrypto.com/feed/", category="media", trust_score=0.60, interval_seconds=25.0, timeout_seconds=15.0),
+        NewsSourceConfig("dailycoin", "DailyCoin", "https://dailycoin.com/feed/", category="media", trust_score=0.62, interval_seconds=20.0, timeout_seconds=15.0),
+        NewsSourceConfig("coinfomania", "Coinfomania", "https://coinfomania.com/feed/", category="media", trust_score=0.58, interval_seconds=25.0, timeout_seconds=15.0),
+        NewsSourceConfig("cryptonews_media", "CryptoNews", "https://cryptonews.com/news/feed/", category="media", trust_score=0.62, interval_seconds=20.0, timeout_seconds=15.0),
+        NewsSourceConfig("coinspeaker", "Coinspeaker", "https://www.coinspeaker.com/feed/", category="media", trust_score=0.64, interval_seconds=20.0, timeout_seconds=15.0),
+        NewsSourceConfig("coinjournal", "CoinJournal", "https://coinjournal.net/feed/", category="media", trust_score=0.60, interval_seconds=25.0, timeout_seconds=15.0),
         NewsSourceConfig("investing_forex", "Investing.com FX", "https://www.investing.com/rss/news_1.rss", category="research", trust_score=0.62, interval_seconds=20.0, timeout_seconds=15.0),
         NewsSourceConfig("investing_commodities", "Investing.com Commodities", "https://www.investing.com/rss/news_11.rss", category="research", trust_score=0.62, interval_seconds=20.0, timeout_seconds=15.0),
         NewsSourceConfig("yahoo_markets", "Yahoo Markets", "https://finance.yahoo.com/news/rssindex", trust_score=0.64, interval_seconds=25.0),
@@ -1042,4 +1103,4 @@ def default_sources() -> List[NewsSourceConfig]:
             extra.append(cfg)
     except Exception:
         extra = []
-    return core + extra
+    return core + extra + keyed_sources()

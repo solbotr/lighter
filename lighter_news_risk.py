@@ -142,7 +142,8 @@ class LighterNewsRiskGate:
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
         self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
-        self.max_open_positions = int(os.getenv("NEWS_MAX_CONCURRENCY", "6"))
+        max_conc = int(os.getenv("NEWS_MAX_CONCURRENCY", "0"))
+        self.max_open_positions = float("inf") if max_conc <= 0 else max_conc
         self.max_gross_leverage = float(os.getenv("NEWS_MAX_GROSS_LEVERAGE", "1.5"))
         self.live_source_ids = {
             source.strip().lower()

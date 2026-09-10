@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "browser-automation": {
+      "source": "web-infra-dev/midscene-skills",
+      "sourceType": "github",
+      "skillPath": "skills/browser/SKILL.md",
+      "computedHash": "67752fb2fd0a741ec7e5b67d112bd3c7b9b0acd6a4bbc3fbda881fe7f398c774"
+    }
+  }
+}
