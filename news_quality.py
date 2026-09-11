@@ -20,6 +20,12 @@ TRADEABLE_TYPES = frozenset({
     "upgrade", "mainnet", "etf", "whale", "arbitrage", "momentum", "general_crypto", "defi", "layer1",
     "liquidation", "sec", "tokenomics", "volume_surge", "whale_movement", "ecosystem", "protocol", "crypto",
     "unlock", "burn", "buyback",
+    # Geopolitical / macro shocks — oil chokepoint, war, sanctions, maritime, supply disruption
+    "geopolitical", "geopolitical_oil_chokepoint", "geopolitical_oil_shock", "oil_chokepoint",
+    "maritime_chokepoint", "war", "conflict", "airstrike", "military", "houthi", "iran",
+    "supply_shock", "supply_disruption", "energy_shock", "commodities_shock",
+    "central_bank", "rate_decision", "fomc", "ecb", "fed",
+    "correction", "crash", "flash_crash", "circuit_breaker",
 })
 REGULATOR_SOLO = frozenset({"regulator"})
 HARD_VETO = re.compile(
@@ -102,15 +108,42 @@ def quality_veto(event: Optional[NormalizedNewsEvent]) -> Tuple[bool, str]:
     universe = listed_symbols() | known_symbols()
     symbols = [item for item in event.entities if item in universe]
     if not symbols:
-        # Check if asset exists in headline directly
-        headline_upper = (event.headline or "").upper()
-        for u_sym in ["BTC", "ETH", "SOL", "HYPE", "TRUMP", "DOGE", "AVAX", "NVDA", "TSLA", "AAPL"]:
-            if u_sym in headline_upper:
+        # Any Lighter-listed ticker mentioned in the headline is fair game.
+        headline = event.headline or ""
+        headline_upper = headline.upper()
+        # Prefer longer symbols first so 1000PEPE wins over PEPE substrings.
+        for u_sym in sorted(universe, key=len, reverse=True):
+            if not u_sym or len(u_sym) < 2:
+                continue
+            if u_sym in _AMBIGUOUS and not TICKER_HINT.search(headline):
+                continue
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(u_sym)}(?![A-Za-z0-9])", headline_upper):
+                symbols = [u_sym]
+                break
+            if f"${u_sym}" in headline_upper:
                 symbols = [u_sym]
                 break
     if not symbols:
+        try:
+            from news_direction import macro_routes
+            m_routes = macro_routes(event)
+            if m_routes:
+                symbols = [s for s, _ in m_routes if s in universe]
+        except Exception:
+            pass
+    if not symbols:
         return False, "no tradeable asset in entities"
     if not any(headline_has_subject_asset(event.headline, symbol) for symbol in symbols):
+        # Macro theme bypass: if it's a recognized macro shock, whale, arbitrage, or geopolitical event, the subject is the theme
+        _GEO_TYPES = {
+            "macro", "opec", "whale", "arbitrage", "geopolitical",
+            "geopolitical_oil_chokepoint", "geopolitical_oil_shock", "oil_chokepoint",
+            "maritime_chokepoint", "war", "conflict", "airstrike", "military",
+            "supply_shock", "supply_disruption", "energy_shock", "commodities_shock",
+            "central_bank", "rate_decision", "fomc", "ecb", "fed",
+        }
+        if event.event_type in _GEO_TYPES or (event.category in {"regulator", "official", "wire", "geopolitical"} and any(s in symbols for s in ["WTI", "BRENTOIL", "XAU", "XAG", "SPY", "QQQ", "EURUSD", "USDJPY", "NATGAS", "XAU", "BRENTOIL"])):
+            return True, ""
         return False, "asset is not the headline subject"
     return True, ""
 

@@ -396,7 +396,15 @@ class MaxSizeExecutionEngine:
                     return acc
             except (TypeError, ValueError):
                 continue
-        return None
+        # Fallback: pick the sub-account with the highest collateral (index field may be absent)
+        best: Optional[Dict[str, Any]] = None
+        best_collat = 0.0
+        for acc in sub_accs:
+            collat = self._parse_collateral(acc)
+            if collat is not None and collat > best_collat:
+                best_collat = collat
+                best = acc
+        return best
 
     def _parse_collateral(self, acc: Dict[str, Any]) -> Optional[float]:
         for key in ("collateral", "available_balance", "available_collateral", "total_collateral", "balance"):
@@ -417,32 +425,41 @@ class MaxSizeExecutionEngine:
             return None
 
         ttl = self._collateral_cache_ttl_sec()
-        age = time.time() - float(getattr(self, "_collateral_cache_ts", 0.0) or 0.0)
-        if (
-            not force
-            and ttl > 0
-            and age < ttl
-            and float(getattr(self, "_last_cached_collateral", 0.0) or 0.0) > 0
-        ):
-            return float(self._last_cached_collateral)
+        cache_ts = float(getattr(self, "_collateral_cache_ts", 0.0) or 0.0)
+        age = time.time() - cache_ts
+        cached = float(getattr(self, "_last_cached_collateral", 0.0) or 0.0)
+        fallback_default = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))
+        cache_verified = cache_ts > 0 and cached > fallback_default
+        if not force and ttl > 0 and age < ttl and cache_verified:
+            return cached
 
         if not hasattr(self, "_last_cached_collateral"):
-            self._last_cached_collateral = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))
+            self._last_cached_collateral = fallback_default
         try:
             session = await self._http_session()
-            http_to = aiohttp.ClientTimeout(total=2.0 if self._speed_mode() else 4.0)
-            # 1. Primary: Direct query by subaccount index (fastest & most reliable)
+            # Collateral fetch must not use the 2s speed-path timeout — false low reads block all fills.
+            http_to = aiohttp.ClientTimeout(total=4.0)
+
+            def _store_collateral(collat: float) -> float:
+                self._last_cached_collateral = collat
+                self._collateral_cache_ts = time.time()
+                return collat
+
+            # 1. Direct query by subaccount index (matches check_positions_detail.py)
             url_idx = f"{self.base_url}/api/v1/account?by=index&value={self.account_index}"
             async with session.get(url_idx, timeout=http_to) as resp:
                 if resp.status == 200:
                     data = await resp.json()
+                    accs = data.get("accounts") or []
+                    for ac in accs:
+                        collat = self._parse_collateral(ac)
+                        if collat is not None and collat > 0:
+                            return _store_collateral(collat)
                     collat = self._parse_collateral(data)
                     if collat is not None and collat > 0:
-                        self._last_cached_collateral = collat
-                        self._collateral_cache_ts = time.time()
-                        return collat
+                        return _store_collateral(collat)
 
-            # 2. Secondary: Query by L1 Wallet address if index returned empty
+            # 2. Fallback: Query by L1 Wallet address
             if wallet:
                 url_wallet = f"{self.base_url}/api/v1/accountsByL1Address?l1_address={wallet}"
                 async with session.get(url_wallet, timeout=http_to) as resp:
@@ -455,15 +472,19 @@ class MaxSizeExecutionEngine:
                         if acc is not None:
                             collat = self._parse_collateral(acc)
                             if collat is not None and collat > 0:
-                                self._last_cached_collateral = collat
-                                self._collateral_cache_ts = time.time()
-                                return collat
+                                return _store_collateral(collat)
 
-            # Return cached collateral if endpoint temporarily timed out
+            if cache_verified:
+                return cached
+            logger.warning("Live collateral query failed; using fallback $%.2f", self._last_cached_collateral)
             return self._last_cached_collateral
         except Exception as e:
-            logger.debug("Live collateral query using cached value ($%.2f): %s", self._last_cached_collateral, e)
+            if cache_verified:
+                logger.debug("Live collateral query using cached value ($%.2f): %s", cached, e)
+                return cached
+            logger.warning("Live collateral query failed ($%.2f fallback): %s", self._last_cached_collateral, e)
             return self._last_cached_collateral
+
 
     def _book_to_snapshot(self, asset: str, book: Dict[str, Any]) -> Optional[MarketSnapshot]:
         try:
@@ -686,7 +707,7 @@ class MaxSizeExecutionEngine:
 
     def ensure_exit_prices(self, pos: ActivePosition) -> None:
         """Every position always has local TP and SL prices for the watchdog with volatility adaptation."""
-        from trade_exits import policy_for, tp_sl_prices, scale_tp_price
+        from trade_exits import TP_LADDER_LEVELS, policy_for, tp_sl_prices, scale_tp_price
         from volatility_adaptive_exits import get_volatility_engine
 
         engine = getattr(self, "volatility_engine", None) or get_volatility_engine()
@@ -716,11 +737,11 @@ class MaxSizeExecutionEngine:
         if not pos.original_size:
             pos.original_size = pos.size_eth or pos.ordered_size
         nxt = (pos.tp_hits or 0) + 1
-        if nxt <= 2:
+        if nxt <= TP_LADDER_LEVELS:
             pos.tp_price = scale_tp_price(pos.side, pos.entry_price, policy, nxt, atr_multiplier=mult)
         else:
             pos.tp_price = 0.0
-            pos.trail_gap_pct = 1.0
+            pos.trail_gap_pct = pos.trail_gap_pct or 1.0
         if not pos.sl_price:
             pos.sl_price = sl
 
@@ -880,6 +901,10 @@ class MaxSizeExecutionEngine:
                     for acc in accounts if isinstance(accounts, list) else [accounts]:
                         if not isinstance(acc, dict):
                             continue
+                        collat = self._parse_collateral(acc)
+                        if collat is not None and collat > 0:
+                            self._last_cached_collateral = collat
+                            self._collateral_cache_ts = time.time()
                         raw = acc.get("positions") or acc.get("position") or []
                         if isinstance(raw, dict):
                             raw = list(raw.values())
@@ -1463,8 +1488,12 @@ class MaxSizeExecutionEngine:
         if existing:
             return {"success": False, "error": f"{asset} already has an open {existing.side} position"}
 
-        # Opposing Whale Sweep Veto: do not enter against aggressive whale sweeps within 15s
-        if hasattr(self, "_recent_whale_signals"):
+        # Opposing Whale Sweep Veto: block non-whale entries against fresh tape; whale-following trades skip.
+        skip_whale_veto = (
+            "whale" in (reason or "").lower()
+            or os.getenv("WHALE_SKIP_OPPOSING_VETO", "1").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        if not skip_whale_veto and hasattr(self, "_recent_whale_signals"):
             whale_info = self._recent_whale_signals.get(asset.upper())
             if whale_info:
                 w_side, w_notional, w_ts = whale_info
@@ -2207,8 +2236,8 @@ class MaxSizeExecutionEngine:
         return events[0] if events else self._exit_event(pos, "PARTIAL_TP_1", price, pos.size_eth, full=True)
 
     def _scale_out_events(self, pos: ActivePosition, price: float) -> List[Dict[str, Any]]:
-        """Emit every TP level the mark has already cleared (Level 1: 50% & SL->BE+0.1%, Level 2: 25%, Level 3: 25% runner)."""
-        from trade_exits import already_through_exit, breakeven_sl, partial_qty, policy_for, scale_tp_price
+        """Emit every TP level cleared (TP1..TP4). TP1 also moves SL to BE+0.1%."""
+        from trade_exits import TP_LADDER_LEVELS, already_through_exit, breakeven_sl, partial_qty, policy_for, scale_tp_price
 
         events: List[Dict[str, Any]] = []
         remaining = pos.size_eth
@@ -2216,7 +2245,7 @@ class MaxSizeExecutionEngine:
         orig = pos.original_size or pos.size_eth
         mult = getattr(pos, "atr_multiplier", 1.0) or 1.0
         policy = policy_for(pos.asset, override_tp=pos.tp_pct or None, override_sl=pos.sl_pct or None, atr_multiplier=mult)
-        while hits < 2 and remaining > 0:
+        while hits < TP_LADDER_LEVELS and remaining > 0:
             nxt = hits + 1
             tp_px = scale_tp_price(pos.side, pos.entry_price, policy, nxt, atr_multiplier=mult)
             if already_through_exit(pos.side, price, tp_px, 0.0) != "TAKE_PROFIT":
@@ -2224,7 +2253,7 @@ class MaxSizeExecutionEngine:
             qty = partial_qty(orig, remaining, nxt)
             if qty <= 0:
                 break
-            full = False
+            full = nxt >= TP_LADDER_LEVELS
             ev = self._exit_event(pos, f"PARTIAL_TP_{nxt}", price, qty, full=full)
             ev["tp_level"] = nxt
             events.append(ev)
@@ -2233,7 +2262,7 @@ class MaxSizeExecutionEngine:
             if nxt == 1:
                 pos.sl_price = breakeven_sl(pos.side, pos.entry_price, 0.1)
                 pos.pending_sl_amend = True
-            elif nxt == 2:
+            elif nxt >= 2:
                 pos.trail_gap_pct = policy.trail_gap_pct
                 pos.pending_sl_amend = True
         return events
@@ -2259,6 +2288,7 @@ def _synthetic_normalized_event(
     cluster_id: str = "",
     url: str = "",
     guid: str = "",
+    materiality: float = 0.85,
 ) -> NormalizedNewsEvent:
     now = datetime.now(timezone.utc)
     gid = guid or event_id
@@ -2278,8 +2308,10 @@ def _synthetic_normalized_event(
         entities=tuple(entities),
         event_type=event_type,
         direction=direction,
+        materiality=materiality,
         confidence=confidence,
         cluster_id=cluster_id or event_id,
+        raw={"adapter": "whale_radar", "source_id": source_id},
     )
 
 
@@ -2298,6 +2330,12 @@ class NewsIngestionManager:
             max_concurrency=int(os.getenv("NEWS_FETCH_CONCURRENCY", "24")),
         )
         self.treenews_ws = TreeNewsWebSocketClient(on_records=self._handle_records)
+        try:
+            from x_monitor import XPostMonitorTool
+            self.x_monitor = XPostMonitorTool(on_records=self._handle_records)
+        except Exception as _xe:
+            logger.warning("Could not initialize XPostMonitor: %s", _xe)
+            self.x_monitor = None
         try:
             from hyperliquid_whale_tracker import HyperliquidWhaleTracker
             self.whale_tracker = HyperliquidWhaleTracker(on_whale_signal=self._handle_whale_signal)
@@ -2323,6 +2361,9 @@ class NewsIngestionManager:
         if self.cross_dex_arb and os.getenv("CROSS_DEX_ARB_ENABLED", "true").lower() == "true":
             await self.cross_dex_arb.start()
             logger.info("⚡ [ARB] Cross-DEX Hyperliquid Price-Lag Arbitrage Engine active (25 bps lead detector)")
+        if self.x_monitor and os.getenv("X_MONITOR_ENABLED", "true").lower() == "true":
+            asyncio.create_task(self.x_monitor.run_monitor_loop())
+            logger.info("🐦 [X-RADAR] X (Twitter) Post Monitor Tool active (treg.x.user.posts / tikhub)")
 
     async def stop(self):
         self.is_running = False
@@ -2332,6 +2373,8 @@ class NewsIngestionManager:
             await self.whale_tracker.stop()
         if self.cross_dex_arb:
             await self.cross_dex_arb.stop()
+        if self.x_monitor:
+            self.x_monitor.is_running = False
 
     async def _handle_arb_opportunity(self, opp: Any):
         """Cross-DEX price-lag arbitrage signal handler."""
@@ -2355,7 +2398,7 @@ class NewsIngestionManager:
             confidence=0.92,
             source_score=0.92,
             category="wire",
-            cluster_id=f"arb_{asset}_{direction}",
+            cluster_id=f"arb_{asset}_{direction}_{int(time.time()*1000)}",
         )
         item = NewsItem(
             source="CrossDexArbitrage",
@@ -2387,13 +2430,19 @@ class NewsIngestionManager:
         if not hasattr(self, "_recent_whale_signals"):
             self._recent_whale_signals: Dict[str, Tuple[str, float, float]] = {}  # asset -> (side, notional, timestamp)
         self._recent_whale_signals[asset] = (side, notional, time.time())
+        exec_engine = getattr(self, "_executor", None)
+        if exec_engine is not None:
+            if not hasattr(exec_engine, "_recent_whale_signals"):
+                exec_engine._recent_whale_signals = {}
+            exec_engine._recent_whale_signals[asset] = (side, notional, time.time())
 
         # Trigger auto-entry when smart money notional >= $35,000 USD (Upgrade: Hyperliquid Whale Co-Pilot)
         min_whale_usd = float(os.getenv("WHALE_MIN_TRADE_USD", "35000"))
         if notional >= min_whale_usd and asset in ["BTC", "ETH", "SOL", "HYPE", "TRUMP", "DOGE", "AVAX"]:
             direction = "BULLISH" if side in ["BUY", "LONG"] else "BEARISH"
+            now_ms = int(time.time() * 1000)
             whale_event = _synthetic_normalized_event(
-                event_id=f"whale_{asset}_{int(time.time()*1000)}",
+                event_id=f"whale_{asset}_{now_ms}",
                 source_id="hyperliquid_whale",
                 publisher="HyperliquidTape",
                 headline=f"🐋 Hyperliquid Mega Whale {side} ${notional:,.0f} {asset}",
@@ -2404,7 +2453,7 @@ class NewsIngestionManager:
                 confidence=0.88,
                 source_score=0.88,
                 category="wire",
-                cluster_id=f"whale_{asset}_{direction}",
+                cluster_id=f"whale_{asset}_{direction}_{now_ms}",
             )
             item = NewsItem(
                 source="HyperliquidWhale",
@@ -2455,6 +2504,7 @@ class LighterNewsSniperBot:
         self.executor._strategy_bot = self
         self.db_path = os.getenv("NEWS_DB_PATH", str(Path(__file__).with_name("lighter_news.db")))
         self.news_manager = NewsIngestionManager(self._handle_news_event, db_path=self.db_path)
+        self.news_manager._executor = self.executor
         self.markets = MarketRegistry()
         self.tickers = TickerCache()
         self.intent_queue = TradeIntentQueue(self.db_path)
@@ -2524,6 +2574,8 @@ class LighterNewsSniperBot:
         return words - stopwords
 
     def _is_duplicate_story_fingerprint(self, asset: str, side: str, event: NormalizedNewsEvent, now: float) -> bool:
+        if getattr(event, "event_type", "") in {"whale", "arbitrage", "momentum"} or (event.source_id or "").startswith(("hyperliquid", "whale", "cross_dex")):
+            return False
         sym = asset.upper()
         cluster_id = getattr(event, "cluster_id", "")
         tokens = self._extract_story_tokens(f"{event.headline} {event.body}")
@@ -2857,6 +2909,14 @@ class LighterNewsSniperBot:
 
         self.metrics.inc("ingested")
         self.audit.emit("observed", event.event_id, source=event.source_id, type=event.event_type, headline=event.headline)
+
+        # Speed mode: only live-eligible fast wires reach sizing/risk gate (skip stale RSS/X backlog).
+        if self.executor._speed_mode() and event.event_type not in {"whale", "arbitrage", "momentum"}:
+            eligible, reason = self.news_risk_gate.source_is_live_eligible(event)
+            if not eligible:
+                self.metrics.inc("shadow_only" if "shadow only" in reason else "stale_feed")
+                return
+
         from news_quality import quality_veto
 
         ok, veto_reason = quality_veto(event)
@@ -2880,7 +2940,8 @@ class LighterNewsSniperBot:
         if market is None:
             self.metrics.inc("unresolved_asset")
             return
-        if not confirmed:
+        confirmed_only = os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "false").lower() == "true"
+        if confirmed_only and not confirmed and event.confidence < 0.80 and event.event_type not in {"whale", "arbitrage", "momentum"}:
             self.metrics.inc("unconfirmed")
             return
 
@@ -2948,7 +3009,9 @@ class LighterNewsSniperBot:
 
         if side not in market.enabled_sides:
             self.metrics.inc("side_disabled")
+            logger.warning("News signal vetoed: side %s not in enabled_sides for %s (enabled: %s)", side, market.symbol, market.enabled_sides)
             return
+
         base_requested = float(os.getenv("NEWS_REQUESTED_USD", "100.0"))
         max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
         
@@ -3058,6 +3121,10 @@ class LighterNewsSniperBot:
         intent = await self.intent_queue.enqueue(event, market, side, decision.sized_usd or requested_usd)
         if intent.status != "intent" or intent.event_id != event.event_id:
             self.metrics.inc("duplicate_intent")
+            logger.info(
+                "🚫 [INTENT DEDUP] Dropped %s %s (%s): intent status=%s event_id=%s",
+                side, market.symbol, event.event_type, intent.status, intent.event_id,
+            )
             await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
             return
         await self.intent_queue.mark(intent.intent_id, "reserved", reservation_id=decision.reservation_id)
@@ -3076,8 +3143,13 @@ class LighterNewsSniperBot:
                 collateral_usd=collateral,
             )
             if not result.get("success"):
-                await self.intent_queue.mark(intent.intent_id, "rejected", reasons=(str(result.get("error", "execution failed")),))
+                err = str(result.get("error", "execution failed"))
+                await self.intent_queue.mark(intent.intent_id, "rejected", reasons=(err,))
                 self.metrics.inc("rejected")
+                logger.warning(
+                    "❌ [EXEC REJECT] %s %s (%s): %s",
+                    side, market.symbol, event.event_type, err,
+                )
                 return
             intent.fill_price = float(result.get("entry_price") or snapshot.price)
             intent.fill_size = float(result.get("size_eth") or 0.0)
@@ -3337,6 +3409,10 @@ class LighterNewsSniperBot:
                             )
                         else:
                             pos.is_active = False
+                            try:
+                                self.news_risk_gate.clear_open_position(pos.asset)
+                            except Exception:
+                                pass
                     else:
                         exit_submitted = True
                     book_pos = next((item for item in self.positions.active() if item.asset == ev["asset"]), None)
@@ -3508,8 +3584,9 @@ class LighterNewsSniperBot:
         new, first = sync_catalog(symbols)
         seed = sorted(named & listed)
         open_syms = [p.asset.upper() for p in self.executor.active_positions.values() if p.is_active]
-        # First boot: named assets only. Later: also attach feeds for pairs Lighter just listed.
-        want = list(dict.fromkeys(open_syms + seed + (new if not first else [])))
+        # Attach ticker news for EVERY active Lighter market (cap 300; catalog is ~224).
+        all_listed = sorted(listed)
+        want = list(dict.fromkeys(open_syms + seed + new + all_listed))
         added = register_ticker_sources(self.news_manager.registry, want, limit=300)
         logger.info(
             "Universe sync markets=%s new=%s first=%s ticker_feeds=%s",
@@ -3535,7 +3612,7 @@ class LighterNewsSniperBot:
 
     async def _heartbeat_loop(self) -> None:
         interval = float(os.getenv("NEWS_HEARTBEAT_SECONDS", "300"))
-        ping_tg = os.getenv("NEWS_HEARTBEAT_TELEGRAM", "false").lower() in {"1", "true", "yes"}
+        ping_tg = os.getenv("NEWS_HEARTBEAT_TELEGRAM", "true").lower() in {"1", "true", "yes"}
         while True:
             await asyncio.sleep(interval)
             try:
@@ -3545,23 +3622,35 @@ class LighterNewsSniperBot:
                         self.scoreboard.settle(bet.bet_id, snap.price)
                 board = self.scoreboard.summary()
                 collat = await self.executor.fetch_available_collateral_usd()
-                open_n = len([p for p in self.executor.active_positions.values() if p.is_active])
+                active_pos = [p for p in self.executor.active_positions.values() if p.is_active]
+                open_n = len(active_pos)
+
+                scan_lines = []
+                for p in active_pos:
+                    mark = snap.price if (snap := self.tickers.get(p.asset)) else p.entry_price
+                    pnl_pct = ((mark - p.entry_price) / p.entry_price * 100.0) if p.side.startswith("BUY") else ((p.entry_price - mark) / p.entry_price * 100.0) if p.entry_price > 0 else 0.0
+                    pnl_usd = (pnl_pct / 100.0) * p.notional_usd
+                    scan_lines.append(
+                        f"  • {p.asset} {p.side}: {p.size_eth} @ ${p.entry_price:.4f} (Mark: ${mark:.4f} | PnL: {'+' if pnl_usd>=0 else ''}${pnl_usd:.2f} / {pnl_pct:+.2f}%)"
+                    )
+
                 logger.info(
-                    "heartbeat mode=%s open=%s collat=%s daily_loss=%s scoreboard %s/%s",
+                    "🔍 [5-MIN POSITION SCAN] mode=%s open=%d collat=$%s | daily_loss=$%.2f | scoreboard %d/%d\n%s",
                     self.mode_label(),
                     open_n,
-                    collat,
+                    f"{collat:.2f}" if collat is not None else "N/A",
                     self.news_risk_gate._daily_loss_usd,
                     board.get("hits", 0),
                     board.get("closed", 0),
+                    "\n".join(scan_lines) if scan_lines else "  (No active positions open)",
                 )
-                if ping_tg:
+                if ping_tg and open_n > 0:
                     from lighter_telegram import tg_send
+                    pos_text = "\n".join(scan_lines)
                     tg_send(
-                        f"❤️ <b>Heartbeat</b> mode={self.mode_label()}\n"
-                        f"open={open_n} collat=${collat if collat is not None else 0:.2f}\n"
-                        f"daily_loss=${self.news_risk_gate._daily_loss_usd:.2f}\n"
-                        f"scoreboard {board.get('hits',0)}/{board.get('closed',0)} hit-rate={board.get('hit_rate',0):.0%}"
+                        f"🔍 <b>5-Min Position Scan</b> ({self.mode_label()})\n"
+                        f"💼 <b>Collateral:</b> ${collat if collat is not None else 0:.2f} USDC\n"
+                        f"📊 <b>Active Positions ({open_n}):</b>\n{pos_text}"
                     )
             except Exception as e:
                 logger.debug("heartbeat: %s", e)

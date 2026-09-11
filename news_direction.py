@@ -53,18 +53,22 @@ def classify_with_body(headline: str, body: str) -> Tuple[str, str, float]:
     return event_type, direction, materiality
 
 
+import time
+
+
 def theme_key(event: NormalizedNewsEvent) -> str:
     text = lead_text(event.headline, event.body)
+    time_bucket = int(time.time() // 1800)  # 30-minute theme clustering window
     if THEME_OIL.search(text):
-        return "theme:oil"
+        return f"theme:oil:{time_bucket}"
     if THEME_GOLD.search(text):
-        return "theme:gold"
+        return f"theme:gold:{time_bucket}"
     if THEME_RATES.search(text):
-        return "theme:rates"
+        return f"theme:rates:{time_bucket}"
     if THEME_COPPER.search(text):
-        return "theme:copper"
+        return f"theme:copper:{time_bucket}"
     entity = event.entities[0] if event.entities else normalize_title(event.headline)[:80]
-    return f"theme:{entity}|{event.event_type}|{event.direction}"
+    return f"theme:{entity}|{event.event_type}|{event.direction}:{time_bucket}"
 
 
 def theme_cluster_id(event: NormalizedNewsEvent) -> str:

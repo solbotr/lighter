@@ -88,11 +88,23 @@ class TradeIntentQueue:
 
     async def enqueue(self, event: NormalizedNewsEvent, market: AssetMarket, side: str, requested_usd: float) -> TradeIntent:
         async with self._lock:
+            now = time.time()
+            lockout_sec = float(os.getenv("NEWS_CLUSTER_LOCKOUT_SEC", "60.0"))
             if event.cluster_id in self._clusters:
-                existing = self.intents[self._clusters[event.cluster_id]]
-                return existing
+                existing_id = self._clusters[event.cluster_id]
+                existing = self.intents.get(existing_id)
+                if existing:
+                    # In-flight intents ("intent", "reserved", "submitted", "acknowledged", "partial") always deduplicate
+                    if existing.status in {"intent", "reserved", "submitted", "acknowledged", "partial"}:
+                        return existing
+                    # Filled intents only block duplicate bursts for a short lockout window (e.g. 60s)
+                    if existing.status == "filled" and (now - getattr(existing, "created_at", 0.0) < lockout_sec):
+                        return existing
+                # Otherwise, the previous intent is completed/stale — release cluster slot for new trades
+                self._clusters.pop(event.cluster_id, None)
+
             intent = TradeIntent(
-                intent_id=stable_hash(event.event_id, event.cluster_id, str(time.time())),
+                intent_id=stable_hash(event.event_id, event.cluster_id, str(now)),
                 event_id=event.event_id,
                 cluster_id=event.cluster_id,
                 asset=market.symbol,
@@ -102,6 +114,7 @@ class TradeIntentQueue:
                 market_index=market.market_index,
                 tp_pct=market.tp_pct,
                 sl_pct=market.sl_pct,
+                created_at=now,
             )
             self.intents[intent.intent_id] = intent
             self._clusters[event.cluster_id] = intent.intent_id
@@ -160,6 +173,8 @@ class TradeIntentQueue:
             )
 
     def _restore(self) -> None:
+        now = time.time()
+        lockout_sec = float(os.getenv("NEWS_CLUSTER_LOCKOUT_SEC", "60.0"))
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute("SELECT payload FROM news_intents").fetchall()
         for (payload,) in rows:
@@ -167,7 +182,10 @@ class TradeIntentQueue:
             data["reasons"] = tuple(data.get("reasons") or ())
             intent = TradeIntent(**data)
             self.intents[intent.intent_id] = intent
-            if intent.status not in {"rejected", "canceled", "invalidated"}:
+            # Only restore active in-flight intents or very recent fills (<60s) to cluster dedup map
+            if intent.status in {"intent", "reserved", "submitted", "acknowledged", "partial"}:
+                self._clusters[intent.cluster_id] = intent.intent_id
+            elif intent.status == "filled" and (now - getattr(intent, "created_at", 0.0) < lockout_sec):
                 self._clusters[intent.cluster_id] = intent.intent_id
 
 

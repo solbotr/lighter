@@ -45,11 +45,12 @@ def _stub_live_exchange(executor, collateral_usd=100.0):
     )
 
     async def _wait(asset, market_index, timeout=20.0):
+        entry_p = 70000.0 if str(asset or "").upper() == "BTC" else 2600.0
         return {
             "symbol": asset,
             "market_index": market_index,
             "size": 0.03,
-            "entry_price": 2600.0,
+            "entry_price": entry_p,
             "side": "BUY/LONG",
         }
 
@@ -500,17 +501,26 @@ def test_scale_out_ladder_and_partial_qty():
     from trade_exits import infer_tp_hits, partial_qty, policy_for, scale_tp_price, scaled_out_qty, tp_ladder_prices, breakeven_sl
     policy = policy_for("BTC")
     ladder = tp_ladder_prices("BUY/LONG", 100.0, policy)
-    assert ladder[0] < ladder[1] < ladder[2]
+    assert len(ladder) == 4
+    assert ladder[0] < ladder[1] < ladder[2] < ladder[3]
     assert abs(ladder[0] - scale_tp_price("BUY/LONG", 100.0, policy, 1)) < 1e-9
-    assert partial_qty(100, 100, 1) == 50
-    assert partial_qty(100, 50, 2) == 25
-    assert partial_qty(100, 25, 3) == 25
-    assert scaled_out_qty(100, 100, 1) == 50
-    assert scaled_out_qty(100, 100, 2) == 75
+    assert abs(ladder[0] - 102.0) < 1e-9  # TP1 +2%
+    assert abs(ladder[1] - 104.0) < 1e-9  # TP2 +4%
+    assert abs(ladder[2] - 106.0) < 1e-9  # TP3 +6%
+    assert abs(ladder[3] - 108.0) < 1e-9  # TP4 +8%
+    assert partial_qty(100, 100, 1) == 25
+    assert partial_qty(100, 75, 2) == 25
+    assert partial_qty(100, 50, 3) == 25
+    assert partial_qty(100, 25, 4) == 25
+    assert scaled_out_qty(100, 100, 1) == 25
+    assert scaled_out_qty(100, 100, 2) == 50
+    assert scaled_out_qty(100, 100, 3) == 75
     assert infer_tp_hits("BUY/LONG", 100.0, 102.0, policy) == 1
     assert infer_tp_hits("BUY/LONG", 100.0, 104.0, policy) == 2
+    assert infer_tp_hits("BUY/LONG", 100.0, 106.0, policy) == 3
+    assert infer_tp_hits("BUY/LONG", 100.0, 108.0, policy) == 4
     short_l = tp_ladder_prices("SELL/SHORT", 100.0, policy)
-    assert short_l[0] > short_l[1] > short_l[2]
+    assert short_l[0] > short_l[1] > short_l[2] > short_l[3]
     assert abs(breakeven_sl("BUY/LONG", 100.0) - 100.1) < 1e-9
     assert abs(breakeven_sl("SELL/SHORT", 100.0) - 99.9) < 1e-9
 
@@ -534,10 +544,10 @@ def test_partial_tp_watchdog_scales_then_keeps_runner():
     )
     executor.active_positions["spy"] = pos
     executor.ensure_exit_prices(pos)
-    # Through TP1 (2.0%) and TP2 (4.0%)
+    # Through TP1 (+2%) and TP2 (+4%)
     events = asyncio.run(executor.check_take_profit_and_stop_loss({"SPY": 104.5}))
     assert [ev["type"] for ev in events] == ["PARTIAL_TP_1", "PARTIAL_TP_2"]
-    assert events[0]["close_qty"] == 2.0
+    assert events[0]["close_qty"] == 1.0  # 25% of 4
     assert events[1]["close_qty"] == 1.0
     assert not events[0]["full"] and not events[1]["full"]
     async def _close(pos, price, qty=None):
@@ -549,9 +559,7 @@ def test_partial_tp_watchdog_scales_then_keeps_runner():
     asyncio.run(executor.close_position(pos, 104.5, qty=events[1]["close_qty"]))
     pos.tp_hits = 2
     executor.ensure_exit_prices(pos)
-    assert pos.size_eth == 1.0
-    assert pos.tp_price == 0.0
-    assert pos.trail_gap_pct == 1.0
+    assert pos.size_eth == 2.0
     assert abs(pos.sl_price - 100.1) < 1e-9
 
 
@@ -591,14 +599,38 @@ def test_scale_out_ladder_level1_shifts_sl_to_breakeven_and_runner_trails():
     )
     executor.active_positions["eth_pos"] = pos
     executor.ensure_exit_prices(pos)
-    # Price reaches +2.0% profit ($2040)
+    # Price reaches +2.0% profit ($2040) → TP1
     events = asyncio.run(executor.check_take_profit_and_stop_loss({"ETH": 2040.0}))
     assert len(events) == 1
     assert events[0]["type"] == "PARTIAL_TP_1"
-    assert events[0]["close_qty"] == 5.0  # 50%
+    assert events[0]["close_qty"] == 2.5  # 25% of 10
     # SL shifted to Breakeven (+0.1% = 2002.0)
     assert abs(pos.sl_price - 2002.0) < 1e-6
 
+
+def test_tp4_full_ladder_clears_all_quarters():
+    import asyncio
+    executor = MaxSizeExecutionEngine(is_live=False)
+    pos = ActivePosition(
+        position_id="btc_pos",
+        asset="BTC",
+        market_index=1,
+        side="BUY/LONG",
+        entry_price=100.0,
+        size_eth=4.0,
+        original_size=4.0,
+        notional_usd=400.0,
+        tp_pct=2.0,
+        sl_pct=0.85,
+        highest_price=100.0,
+        lowest_price=100.0,
+    )
+    executor.active_positions["btc_pos"] = pos
+    executor.ensure_exit_prices(pos)
+    events = asyncio.run(executor.check_take_profit_and_stop_loss({"BTC": 108.5}))
+    assert [ev["type"] for ev in events] == ["PARTIAL_TP_1", "PARTIAL_TP_2", "PARTIAL_TP_3", "PARTIAL_TP_4"]
+    assert events[3]["full"] is True
+    assert sum(ev["close_qty"] for ev in events) == 4.0
 
 def test_ticker_news_source_and_catalog_diff(tmp_path):
     from news_sources import NewsSourceRegistry, register_ticker_sources, ticker_news_source
