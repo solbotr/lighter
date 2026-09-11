@@ -60,18 +60,18 @@ class TreeNewsWebSocketClient:
         trust_score: float = 0.85,
         reconnect_initial_delay: float = 0.5,
         reconnect_max_delay: float = 3.0,
-        ping_interval: float = 15.0,
-        ping_timeout: float = 5.0,
-        connect_timeout: float = 5.0,
+        ping_interval: float = 30.0,
+        ping_timeout: float = 20.0,
+        connect_timeout: float = 30.0,
     ) -> None:
         self.ws_url = ws_url or os.getenv("TREENEWS_WS_URL", DEFAULT_TREENEWS_WS_URL)
         self.on_records = on_records
         self.trust_score = trust_score
         self.reconnect_initial_delay = reconnect_initial_delay
         self.reconnect_max_delay = reconnect_max_delay
-        self.ping_interval = ping_interval
-        self.ping_timeout = ping_timeout
-        self.connect_timeout = connect_timeout
+        self.ping_interval = float(os.getenv("TREENEWS_WS_PING_INTERVAL", str(ping_interval)))
+        self.ping_timeout = float(os.getenv("TREENEWS_WS_PING_TIMEOUT", str(ping_timeout)))
+        self.connect_timeout = float(os.getenv("TREENEWS_WS_CONNECT_TIMEOUT", str(connect_timeout)))
 
         self.stats = TreeNewsClientStats()
         self._running = False
@@ -79,6 +79,7 @@ class TreeNewsWebSocketClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._stop_event = asyncio.Event()
+        self._connect_lock = asyncio.Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -215,6 +216,8 @@ class TreeNewsWebSocketClient:
             self.stats.avg_latency_ms = (self.stats.avg_latency_ms * 0.9) + (latency_ms * 0.1)
 
         try:
+            for rec in records:
+                logger.info("⚡ [TreeNews WS] %s", rec.title[:120])
             res = self.on_records(records)
             if asyncio.iscoroutine(res):
                 await res
@@ -234,11 +237,15 @@ class TreeNewsWebSocketClient:
 
     async def _connect_and_listen(self) -> None:
         """Manages single connection lifecycle."""
+        async with self._connect_lock:
+            return await self._connect_and_listen_locked()
+
+    async def _connect_and_listen_locked(self) -> None:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Origin": "https://news.treeofalpha.com",
         }
-        
+
         ssl_param = None
         if self.ws_url.startswith("wss://"):
             import ssl
@@ -249,8 +256,9 @@ class TreeNewsWebSocketClient:
                 ssl_param = ssl.create_default_context()
                 ssl_param.check_hostname = False
                 ssl_param.verify_mode = ssl.CERT_NONE
-        
-        timeout = aiohttp.ClientTimeout(total=None, connect=self.connect_timeout, sock_read=self.ping_interval + self.ping_timeout)
+
+        # sock_read=None: quiet TreeNews periods must not trip aiohttp read timeouts.
+        timeout = aiohttp.ClientTimeout(total=None, connect=self.connect_timeout, sock_read=None)
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=timeout)
 
@@ -264,7 +272,7 @@ class TreeNewsWebSocketClient:
                 ssl=ssl_param,
                 heartbeat=self.ping_interval,
                 autoping=True,
-                timeout=aiohttp.ClientWSTimeout(ws_close=10.0),
+                timeout=aiohttp.ClientWSTimeout(ws_close=30.0, ws_receive=None),
             )
             async with ws_conn as ws:
                 self._ws = ws

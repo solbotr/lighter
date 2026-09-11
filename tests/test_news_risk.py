@@ -29,7 +29,7 @@ def test_gate_reserves_and_releases():
 
 
 def test_live_gate_rejects_unconfirmed_and_unauthorized():
-    gate = LighterNewsRiskGate(live=True)
+    gate = LighterNewsRiskGate(live=True, confirmed_only=True)
     decision = asyncio.run(gate.approve(event(), MarketSnapshot("ETH", 2500), 25, confirmed=False, authorized=False))
     assert not decision.approved
     assert "authorization" in " ".join(decision.reasons)

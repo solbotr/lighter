@@ -68,11 +68,10 @@ def test_gross_leverage_cap(monkeypatch):
 
 def test_source_allowlist_and_latency(monkeypatch):
     monkeypatch.setenv("NEWS_MAX_EXPOSURE_USD", "10000")
+    # Allowlist removed — any adapter (including rss) may trade live.
     assert approve(LighterNewsRiskGate(live=False), [], event=make_event()).approved
-    rss = approve(LighterNewsRiskGate(live=False), [], event=make_event("rss"))
-    assert not rss.approved and "shadow only" in " ".join(rss.reasons)
-    monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "trusted-rss")
-    assert approve(LighterNewsRiskGate(live=False), [], event=make_event("rss", "trusted-rss")).approved
+    assert approve(LighterNewsRiskGate(live=False), [], event=make_event("rss")).approved
+    monkeypatch.setenv("NEWS_MAX_FEED_LATENCY_SEC", "20")
     stale = approve(LighterNewsRiskGate(live=False), [], event=make_event(latency=60))
     assert not stale.approved and "feed latency 60s" in " ".join(stale.reasons)
     assert approve(LighterNewsRiskGate(live=False), [], event=make_event("rss"), entry_mode="manual").approved

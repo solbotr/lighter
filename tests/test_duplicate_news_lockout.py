@@ -336,6 +336,7 @@ async def test_active_position_blocks_duplicate_entry():
 async def test_risk_gate_strict_cooldown_and_open_position_veto(monkeypatch):
     """Verify LighterNewsRiskGate strict 15-min cooldown and active open position veto."""
     monkeypatch.setenv("NEWS_LIVE_SOURCE_IDS", "treenews")
+    monkeypatch.setenv("NEWS_ASSET_COOLDOWN_SECONDS", "900.0")
     gate = LighterNewsRiskGate(live=False)
     gate._session_trades = 0
     assert gate.cooldown_seconds >= 600.0  # min cooldown (env may configure 600s - 1800s)

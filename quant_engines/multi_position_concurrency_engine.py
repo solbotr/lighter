@@ -85,15 +85,20 @@ class MultiPositionConcurrencyEngine:
 
     def __init__(
         self,
-        max_concurrent_positions: int = 5,
+        max_concurrent_positions: int = None,
         max_total_margin_pct: float = 85.0,
         max_sector_positions: int = 2,
         base_leverage: float = 5.0,
     ):
+        import os
+        if max_concurrent_positions is None:
+            max_concurrent_positions = int(os.getenv("NEWS_MAX_CONCURRENCY", "16") or "16")
+            if max_concurrent_positions <= 0:
+                max_concurrent_positions = 16
         self.max_concurrent_positions = max_concurrent_positions
-        self.max_total_margin_pct = max_total_margin_pct
-        self.max_sector_positions = max_sector_positions
-        self.base_leverage = base_leverage
+        self.max_total_margin_pct = float(os.getenv("NEWS_MAX_MARGIN_PCT", str(max_total_margin_pct)))
+        self.max_sector_positions = int(os.getenv("NEWS_MAX_SECTOR_POSITIONS", str(max_sector_positions)))
+        self.base_leverage = float(os.getenv("NEWS_BASE_LEVERAGE", str(base_leverage)))
         self.active_slots: Dict[str, ActivePositionSlot] = {}
 
     def register_entry(

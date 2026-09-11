@@ -181,13 +181,27 @@ def already_through_exit(side: str, mark: float, tp_price: float, sl_price: floa
     return None
 
 
-# Multi-Stage Scale-Out Ladder:
-# Level 1: At +2.0% profit, close 50% size and shift SL to Breakeven (+0.1%).
-# Level 2: At +4.0% profit, close 25% size.
-# Level 3: Keep 25% runner with 1.0% dynamic trailing stop.
-PARTIAL_FRACS = (0.50, 0.25, 0.25)
-PARTIAL_MULTS = (1.0, 2.0, 3.0)
-SCALE_OUT_TARGET_PCTS = (2.0, 4.0)
+# Multi-Stage Scale-Out Ladder (TP1..TP4):
+# TP1: +2%  close 25% → SL to breakeven (+0.1%)
+# TP2: +4%  close 25%
+# TP3: +6%  close 25%
+# TP4: +8%  close remaining 25% (full exit)
+# Override via NEWS_TP_LADDER_PCTS / NEWS_TP_LADDER_FRACS (comma-separated).
+def _parse_float_tuple(env_key: str, default: Tuple[float, ...]) -> Tuple[float, ...]:
+    raw = (os.getenv(env_key) or "").strip()
+    if not raw:
+        return default
+    try:
+        vals = tuple(float(x.strip()) for x in raw.split(",") if x.strip())
+        return vals if vals else default
+    except ValueError:
+        return default
+
+
+PARTIAL_FRACS = _parse_float_tuple("NEWS_TP_LADDER_FRACS", (0.25, 0.25, 0.25, 0.25))
+PARTIAL_MULTS = _parse_float_tuple("NEWS_TP_LADDER_MULTS", (1.0, 2.0, 3.0, 4.0))
+SCALE_OUT_TARGET_PCTS = _parse_float_tuple("NEWS_TP_LADDER_PCTS", (2.0, 4.0, 6.0, 8.0))
+TP_LADDER_LEVELS = max(1, min(4, len(SCALE_OUT_TARGET_PCTS), len(PARTIAL_FRACS), len(PARTIAL_MULTS)))
 BE_OFFSET_PCT = float(os.getenv("NEWS_BE_OFFSET_PCT", "0.1"))
 RUNNER_TRAIL_GAP_PCT = float(os.getenv("NEWS_RUNNER_TRAIL_GAP_PCT", "1.0"))
 
@@ -199,19 +213,24 @@ def scale_tp_price(
     level: int,
     atr_multiplier: Optional[float] = None,
 ) -> float:
-    """TP price for scale-out level 1..3 with dynamic volatility expansion."""
-    lvl = max(1, min(3, int(level)))
-    if atr_multiplier is not None and atr_multiplier >= 1.2:  # Upgrade 3: was >= 2.0
+    """TP price for scale-out level 1..4 with optional volatility expansion."""
+    max_lvl = TP_LADDER_LEVELS
+    lvl = max(1, min(max_lvl, int(level)))
+    if atr_multiplier is not None and atr_multiplier >= 1.2:
         from volatility_adaptive_exits import calculate_dynamic_tp_levels
-        base_tp = policy.tp_pct if policy is not None and policy.tp_pct else 2.0
+        base_tp = policy.tp_pct if policy is not None and policy.tp_pct else SCALE_OUT_TARGET_PCTS[0]
         tp1, tp2 = calculate_dynamic_tp_levels(base_tp1=base_tp, base_tp2=base_tp * 2.0, atr_multiplier=atr_multiplier)
         if lvl == 1:
             pct = tp1
         elif lvl == 2:
             pct = tp2
-        else:
+        elif lvl == 3:
             pct = tp2 * 1.5
-    elif policy is not None and policy.tp_pct is not None:
+        else:
+            pct = tp2 * 2.0
+    elif len(SCALE_OUT_TARGET_PCTS) >= lvl:
+        pct = SCALE_OUT_TARGET_PCTS[lvl - 1]
+    elif policy is not None and policy.tp_pct is not None and len(PARTIAL_MULTS) >= lvl:
         pct = policy.tp_pct * PARTIAL_MULTS[lvl - 1]
     else:
         pct = SCALE_OUT_TARGET_PCTS[min(len(SCALE_OUT_TARGET_PCTS) - 1, lvl - 1)]
@@ -230,27 +249,32 @@ def breakeven_sl(side: str, entry: float, offset_pct: float = BE_OFFSET_PCT) -> 
 
 
 def partial_qty(original: float, remaining: float, level: int) -> float:
-    """Calculates size to close at scale-out level (Level 1: 50%, Level 2: 25%, Level 3: remainder/25%)."""
+    """Size to close at TP level (equal quarters by default; last level takes remainder)."""
     if remaining <= 0 or original <= 0:
         return 0.0
-    if level == 1:
-        qty = original * PARTIAL_FRACS[0]
-    elif level == 2:
-        qty = original * PARTIAL_FRACS[1]
-    else:
+    max_lvl = TP_LADDER_LEVELS
+    lvl = max(1, min(max_lvl, int(level)))
+    if lvl >= max_lvl:
         return remaining
+    frac = PARTIAL_FRACS[lvl - 1] if lvl - 1 < len(PARTIAL_FRACS) else (1.0 / max_lvl)
+    qty = original * frac
     return min(remaining, max(0.0, qty))
 
 
 def infer_tp_hits(side: str, entry: float, mark: float, policy: ExitPolicy) -> int:
-    """How many scale-out levels the mark has already cleared (0..3)."""
+    """How many scale-out levels the mark has already cleared (0..4)."""
     if entry <= 0 or mark <= 0:
         return 0
     long = side.startswith("BUY")
     pnl_pct = ((mark - entry) / entry * 100.0) if long else ((entry - mark) / entry * 100.0)
     hits = 0
-    for i, mult in enumerate(PARTIAL_MULTS, 1):
-        target = (policy.tp_pct * mult) if policy else (2.0 * mult)
+    for i in range(1, TP_LADDER_LEVELS + 1):
+        if i <= len(SCALE_OUT_TARGET_PCTS):
+            target = SCALE_OUT_TARGET_PCTS[i - 1]
+        elif policy and policy.tp_pct is not None and i <= len(PARTIAL_MULTS):
+            target = policy.tp_pct * PARTIAL_MULTS[i - 1]
+        else:
+            target = 2.0 * i
         if pnl_pct + 1e-12 >= target:
             hits = i
         else:
@@ -262,26 +286,23 @@ def scaled_out_qty(original: float, remaining: float, hits: int) -> float:
     """Qty that should already be closed after `hits` TP levels."""
     if hits <= 0 or original <= 0 or remaining <= 0:
         return 0.0
-    if hits == 1:
-        return min(remaining, original * PARTIAL_FRACS[0])
-    if hits == 2:
-        return min(remaining, original * (PARTIAL_FRACS[0] + PARTIAL_FRACS[1]))
-    return remaining
+    if hits >= TP_LADDER_LEVELS:
+        return remaining
+    closed_frac = sum(PARTIAL_FRACS[:hits])
+    return min(remaining, original * closed_frac)
 
 
-def tp_ladder_prices(side: str, entry: float, policy: ExitPolicy) -> Tuple[float, float, float]:
-    return (
-        scale_tp_price(side, entry, policy, 1),
-        scale_tp_price(side, entry, policy, 2),
-        scale_tp_price(side, entry, policy, 3),
-    )
+def tp_ladder_prices(side: str, entry: float, policy: ExitPolicy) -> Tuple[float, ...]:
+    return tuple(scale_tp_price(side, entry, policy, i) for i in range(1, TP_LADDER_LEVELS + 1))
 
 
 def tp_sl_prices(side: str, entry: float, policy: ExitPolicy) -> Tuple[float, float]:
     long = side.startswith("BUY")
+    # Exchange TP uses TP1 (first scale-out); full ladder handled by local watchdog.
+    tp1 = scale_tp_price(side, entry, policy, 1)
     if long:
-        return entry * (1.0 + policy.tp_pct / 100.0), entry * (1.0 - policy.sl_pct / 100.0)
-    return entry * (1.0 - policy.tp_pct / 100.0), entry * (1.0 + policy.sl_pct / 100.0)
+        return tp1, entry * (1.0 - policy.sl_pct / 100.0)
+    return tp1, entry * (1.0 + policy.sl_pct / 100.0)
 
 
 def trail_stop(side: str, entry: float, high: float, low: float, current_sl: float, policy: ExitPolicy) -> float:

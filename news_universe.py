@@ -99,23 +99,30 @@ ASSET_ALIASES: Dict[str, str] = {
     "spacex": "SPCX",
     # fx
     "eurusd": "EURUSD",
+    "eur": "EURUSD",
     "euro dollar": "EURUSD",
     "euro": "EURUSD",
     "gbpusd": "GBPUSD",
+    "gbp": "GBPUSD",
     "sterling": "GBPUSD",
     "cable": "GBPUSD",
     "british pound": "GBPUSD",
     "usdjpy": "USDJPY",
+    "jpy": "USDJPY",
     "yen": "USDJPY",
     "japanese yen": "USDJPY",
     "audusd": "AUDUSD",
+    "aud": "AUDUSD",
     "australian dollar": "AUDUSD",
     "nzdusd": "NZDUSD",
+    "nzd": "NZDUSD",
     "kiwi": "NZDUSD",
     "usdcad": "USDCAD",
+    "cad": "USDCAD",
     "loonie": "USDCAD",
     "canadian dollar": "USDCAD",
     "usdchf": "USDCHF",
+    "chf": "USDCHF",
     "swiss franc": "USDCHF",
     "usdhkd": "USDHKD",
     "hong kong dollar": "USDHKD",
@@ -126,11 +133,13 @@ ASSET_ALIASES: Dict[str, str] = {
     "spot gold": "XAU",
     "silver": "XAG",
     "copper": "XCU",
-    "wti": "WTI",
+    "oil": "WTI",
     "crude oil": "WTI",
     "crude": "WTI",
+    "wti": "WTI",
     "brent": "BRENTOIL",
     "brent oil": "BRENTOIL",
+    "strait of hormuz": "WTI",
     "natural gas": "NATGAS",
     "natgas": "NATGAS",
     "wheat": "WHEAT",
@@ -224,21 +233,48 @@ def known_symbols() -> Set[str]:
     return set(_LISTED) | set(ASSET_ALIASES.values())
 
 
+def _symbols_from_universe_payload(data: dict) -> Set[str]:
+    out: Set[str] = set()
+    for item in data.get("symbols") or []:
+        if item:
+            out.add(str(item).upper())
+    for book in data.get("order_books") or data.get("order_book_details") or []:
+        if not isinstance(book, dict):
+            continue
+        status = str(book.get("status") or "active").lower()
+        if status and status not in {"active", "listed", ""}:
+            continue
+        sym = str(book.get("symbol") or "").upper().strip()
+        if sym:
+            out.add(sym)
+    return out
+
+
 def load_catalog_snapshot(path: Optional[Path] = None) -> Set[str]:
     target = path or _UNIVERSE_PATH
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
-        return {str(item).upper() for item in (data.get("symbols") or []) if item}
+        if not isinstance(data, dict):
+            return set()
+        return _symbols_from_universe_payload(data)
     except Exception:
         return set()
 
 
 def save_catalog_snapshot(symbols: Iterable[str], path: Optional[Path] = None) -> None:
+    """Persist symbol list without wiping live order_books catalog metadata."""
     target = path or _UNIVERSE_PATH
-    payload = {
-        "symbols": sorted({str(item).upper() for item in symbols if item}),
-        "updated_at": time.time(),
-    }
+    now = sorted({str(item).upper() for item in symbols if item})
+    payload: dict = {"symbols": now, "updated_at": time.time()}
+    try:
+        if target.exists():
+            existing = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(existing, dict):
+                for key in ("order_books", "order_book_details", "code"):
+                    if key in existing:
+                        payload[key] = existing[key]
+    except Exception:
+        pass
     target.write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -252,3 +288,16 @@ def sync_catalog(symbols: Iterable[str], path: Optional[Path] = None) -> Tuple[L
     register_listed(now)
     save_catalog_snapshot(now, path)
     return sorted(now - prev), first
+
+
+def bootstrap_listed_from_disk(path: Optional[Path] = None) -> int:
+    """Ensure every symbol in lighter_universe.json is tradeable at import/boot."""
+    symbols = load_catalog_snapshot(path)
+    for symbol in symbols:
+        alias_symbol(symbol)
+    register_listed(symbols)
+    return len(symbols)
+
+
+# Load full Lighter catalog immediately so quality/entity gates see all perps.
+bootstrap_listed_from_disk()
