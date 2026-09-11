@@ -127,14 +127,14 @@ def session_size_multiplier(symbol: str) -> float:
 
 
 class LighterNewsRiskGate:
-    def __init__(self, live: bool = True) -> None:
+    def __init__(self, live: bool = True, confirmed_only: Optional[bool] = None) -> None:
         self.live = live
         self.execution_live = live_execution_allowed(live)
         self.max_exposure_usd = float(os.getenv("NEWS_MAX_EXPOSURE_USD", "1000"))
-        self.max_trade_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "100"))
+        self.max_trade_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "250"))
         self.max_spread_bps = float(os.getenv("NEWS_MAX_SPREAD_BPS", "100"))
         self.min_confidence = float(os.getenv("NEWS_MIN_CONFIDENCE", "0.70"))
-        self.confirmed_only = os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "true").lower() == "true"
+        self.confirmed_only = confirmed_only if confirmed_only is not None else (os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "true").lower() == "true")
         self.max_asset_usd = float(os.getenv("NEWS_MAX_ASSET_EXPOSURE_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_directional_usd = float(os.getenv("NEWS_MAX_DIRECTIONAL_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "200"))
@@ -142,9 +142,9 @@ class LighterNewsRiskGate:
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
         self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
-        max_conc = int(os.getenv("NEWS_MAX_CONCURRENCY", "0"))
+        max_conc = int(os.getenv("NEWS_MAX_CONCURRENCY", "16"))
         self.max_open_positions = float("inf") if max_conc <= 0 else max_conc
-        self.max_gross_leverage = float(os.getenv("NEWS_MAX_GROSS_LEVERAGE", "1.5"))
+        self.max_gross_leverage = float(os.getenv("NEWS_MAX_GROSS_LEVERAGE", "5.0"))
         self.live_source_ids = {
             source.strip().lower()
             for source in os.getenv("NEWS_LIVE_SOURCE_IDS", "").split(",")
@@ -156,6 +156,7 @@ class LighterNewsRiskGate:
             if adapter.strip()
         }
         self.max_feed_latency_sec = float(os.getenv("NEWS_MAX_FEED_LATENCY_SEC", "20"))
+        self.rss_max_feed_latency_sec = float(os.getenv("NEWS_RSS_MAX_FEED_LATENCY_SEC", "45"))
         self._reserved_usd = 0.0
         self._reservations: Dict[str, float] = {}
         self._asset_reserved: Dict[str, float] = {}
@@ -192,19 +193,62 @@ class LighterNewsRiskGate:
         sized = risk_budget / (stop_distance_pct / 100.0)
         return round(max(0.0, min(requested_usd, self.max_trade_usd, sized)), 4)
 
+    def _poke_is_direct_exchange(self, raw: dict) -> bool:
+        poke_id = str(raw.get("poke_subagent", "") or "").lower()
+        return poke_id.startswith(
+            ("poke_subagent_upbit", "poke_subagent_binance", "poke_subagent_bithumb", "poke_subagent_bybit")
+        )
+
+    def _event_adapter(self, event: NormalizedNewsEvent) -> str:
+        raw = event.raw or {}
+        adapter = str(raw.get("adapter", "") or "").lower()
+        if adapter:
+            return adapter
+        if self._poke_is_direct_exchange(raw):
+            return "poke_ai"
+        source_id = (event.source_id or "").lower()
+        if source_id.startswith(("hyperliquid", "whale")):
+            return "whale_radar"
+        if source_id.startswith(("tree", "treenews")):
+            return "treenews_ws"
+        if source_id.startswith("x_"):
+            return "x"
+        return "rss"
+
+    def _event_is_live_adapter(self, event: NormalizedNewsEvent) -> bool:
+        adapter = self._event_adapter(event)
+        source_id = (event.source_id or "").lower()
+        raw = event.raw or {}
+        if adapter in self.live_source_adapters:
+            return True
+        if self._poke_is_direct_exchange(raw):
+            return "poke_ai" in self.live_source_adapters
+        if source_id.startswith(("hyperliquid", "whale", "x_", "treenews", "tree_")):
+            return True
+        if source_id in self.live_source_ids and adapter not in {"rss", "atom", "json", ""}:
+            return True
+        return False
+
     def source_is_live_eligible(self, event: NormalizedNewsEvent) -> tuple[bool, str]:
-        """Return whether an event is sufficiently fast and from a live source."""
+        """Sniper freshness gate: only near-live news may open positions."""
+        if self.live and not self._event_is_live_adapter(event):
+            return False, "shadow only: source adapter not live-eligible"
+        # Synthetic tape signals are born live — never apply RSS-style feed-age gates.
+        if getattr(event, "event_type", "") in {"whale", "arbitrage", "momentum"}:
+            return True, ""
         if event.published_at is not None and event.ingested_at is not None:
             latency = (event.ingested_at - event.published_at).total_seconds()
-            if latency > self.max_feed_latency_sec:
+            adapter = self._event_adapter(event)
+            source_id = (event.source_id or "").lower()
+            # Fast wires (TreeNews/X/whales/webhooks) stay tight; polled RSS gets a tiny cushion only.
+            fast = (
+                adapter in {"treenews_ws", "webhook", "official", "x", "x_monitor", "treg", "whale_radar", "synthetic", "poke_ai"}
+                or source_id.startswith(("whale", "hyperliquid", "x_", "treenews", "poke_subagent_upbit", "poke_subagent_binance"))
+            )
+            limit = self.max_feed_latency_sec if fast else self.rss_max_feed_latency_sec
+            if latency > limit:
                 return False, f"feed latency {latency:.0f}s exceeds NEWS_MAX_FEED_LATENCY_SEC"
-
-        source_id = (event.source_id or "").lower()
-        adapter = str((event.raw or {}).get("adapter", "")).lower()
-        allowlists_disabled = not self.live_source_ids and not self.live_source_adapters
-        if allowlists_disabled or source_id in self.live_source_ids or adapter in self.live_source_adapters:
-            return True, ""
-        return False, "source not in live allowlist (shadow only)"
+        return True, ""
 
     async def approve(
         self,

@@ -784,9 +784,9 @@ class MaxSizeExecutionEngine:
         size_decimals = self._int_or(meta.get("size_decimals"), 4)
         price_decimals = self._int_or(meta.get("price_decimals"), 2)
 
-        # Hard safety clamp: Never allow a new entry to exceed NEWS_MAX_TRADE_USD ($75.00)
+        # Hard safety clamp: Never allow a new entry to exceed NEWS_MAX_TRADE_USD ($250.00)
         if not reduce_only and price > 0:
-            max_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "75.0"))
+            max_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "250.0"))
             max_allowed_size = (max_usd * 1.05) / price
             if size > max_allowed_size:
                 logger.critical(
@@ -1516,7 +1516,7 @@ class MaxSizeExecutionEngine:
             return {"success": False, "error": "live collateral query failed"}
 
         if notional_usd is not None:
-            capped_notional = min(float(notional_usd), float(os.getenv("NEWS_MAX_TRADE_USD", "75.0")))
+            capped_notional = min(float(notional_usd), float(os.getenv("NEWS_MAX_TRADE_USD", "250.0")))
             order_size = capped_notional / max(1e-6, current_market_price)
         else:
             order_size = self.calculate_max_order_size(
@@ -1524,7 +1524,7 @@ class MaxSizeExecutionEngine:
                 current_market_price,
                 conviction=conviction,
                 margin_utilization_pct=margin_utilization_pct,
-                max_trade_usd=float(os.getenv("NEWS_MAX_TRADE_USD", "75.0")),
+                max_trade_usd=float(os.getenv("NEWS_MAX_TRADE_USD", "250.0")),
             )
         meta = self._meta(asset)
         min_base = float(meta.get("min_base_amount") or 0.0)
@@ -2701,11 +2701,11 @@ class LighterNewsSniperBot:
         if collateral is None:
             collateral = await self.executor.fetch_available_collateral_usd()
         base_requested = float(notional_usd) if notional_usd is not None else float(
-            os.getenv("NEWS_REQUESTED_USD", "100.0")
+            os.getenv("NEWS_REQUESTED_USD", "200.0")
         )
         if notional_usd is None and collateral and collateral > 0:
-            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "5.0"))
-            max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
+            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "20.0"))
+            max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "250.0"))
             compounded = round(collateral * (compounding_pct / 100.0), 2)
             base_requested = max(base_requested, min(max_conviction_usd, compounded))
         requested_usd = min(self.news_risk_gate.max_trade_usd, base_requested)
@@ -3012,20 +3012,20 @@ class LighterNewsSniperBot:
             logger.warning("News signal vetoed: side %s not in enabled_sides for %s (enabled: %s)", side, market.symbol, market.enabled_sides)
             return
 
-        base_requested = float(os.getenv("NEWS_REQUESTED_USD", "100.0"))
-        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "150.0"))
+        base_requested = float(os.getenv("NEWS_REQUESTED_USD", "200.0"))
+        max_conviction_usd = float(os.getenv("NEWS_MAX_HIGH_CONVICTION_USD", "250.0"))
         
-        # 📈 Dynamic Collateral Compounding Engine (Compound 5% of total collateral per trade)
+        # 📈 Dynamic Collateral Compounding Engine (Compound 20% of total collateral per trade)
         collateral = await self.executor.fetch_available_collateral_usd()
         if collateral and collateral > 0:
-            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "5.0"))  # 5% of margin per trade
+            compounding_pct = float(os.getenv("NEWS_COMPOUNDING_PCT", "20.0"))  # 20% of margin per trade
             compounded_base = round(collateral * (compounding_pct / 100.0), 2)
             base_requested = max(base_requested, min(max_conviction_usd, compounded_base))
             logger.info("📈 [AUTO-COMPOUNDING] Sizing dynamically set to $%.2f (Collateral: $%.2f, Rate: %.1f%%)", base_requested, collateral, compounding_pct)
 
         # Scale trade size dynamically above base for highest conviction breaking news
         if event and event.confidence and event.confidence >= 0.85:
-            # 85% -> base, 95%+ -> max_conviction_usd
+            # 85% -> base ($200), 95%+ -> max_conviction_usd ($250)
             scale_factor = 1.0 + ((event.confidence - 0.85) / 0.15) * ((max_conviction_usd / max(1.0, base_requested)) - 1.0)
             scaled_usd = round(min(max_conviction_usd, base_requested * scale_factor), 2)
             requested_usd = min(self.news_risk_gate.max_trade_usd, scaled_usd)
