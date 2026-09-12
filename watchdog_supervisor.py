@@ -182,4 +182,11 @@ def run_supervisor_loop() -> None:
 
 
 if __name__ == "__main__":
+    import socket
+    _sup_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _sup_sock.bind(("127.0.0.1", 49200))
+    except socket.error:
+        print("🚨 [SUPERVISOR LOCK] Another instance of watchdog_supervisor is already running (port 49200 bound). Exiting.")
+        sys.exit(0)
     run_supervisor_loop()

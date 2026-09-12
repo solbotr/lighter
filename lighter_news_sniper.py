@@ -784,14 +784,24 @@ class MaxSizeExecutionEngine:
         size_decimals = self._int_or(meta.get("size_decimals"), 4)
         price_decimals = self._int_or(meta.get("price_decimals"), 2)
 
-        # Hard safety clamp: Never allow a new entry to exceed NEWS_MAX_TRADE_USD ($250.00)
+        # Hard safety clamp: Never allow total position on exchange to exceed NEWS_MAX_TRADE_USD ($250.00)
         if not reduce_only and price > 0:
             max_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "250.0"))
-            max_allowed_size = (max_usd * 1.05) / price
+            existing_pos = self.match_exchange_position(self._cached_positions, asset, market_index)
+            existing_size = abs(float(existing_pos.get("size", 0.0))) if existing_pos else 0.0
+            existing_usd = existing_size * price
+            if existing_usd >= max_usd * 0.92:
+                logger.critical(
+                    "🚨 [TOTAL POSITION CLAMP] Position for %s is ALREADY at $%.2f USD (limit: $%.2f USD). Vetoing duplicate entry!",
+                    asset, existing_usd, max_usd
+                )
+                return None, f"position already at max notional: ${existing_usd:.2f} >= ${max_usd:.2f}"
+            remaining_usd = max(0.0, max_usd - existing_usd)
+            max_allowed_size = (remaining_usd * 1.05) / price
             if size > max_allowed_size:
                 logger.critical(
-                    "🚨 [HARD SIZING CLAMP] Prevented oversized order on %s: requested size %s ($%.2f USD) clamped to %s ($%.2f USD)",
-                    asset, size, size * price, max_allowed_size, max_usd,
+                    "🚨 [HARD SIZING CLAMP] Prevented oversized order on %s: requested size %s ($%.2f USD) clamped to remaining %s ($%.2f USD, existing: $%.2f USD)",
+                    asset, size, size * price, max_allowed_size, remaining_usd, existing_usd,
                 )
                 size = max_allowed_size
                 if size_decimals == 0:
@@ -3777,7 +3787,14 @@ class LighterNewsSniperBot:
 
 
 if __name__ == "__main__":
-    import argparse
+    import argparse, socket, sys
+    _sniper_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        _sniper_sock.bind(("127.0.0.1", 49201))
+    except socket.error:
+        print("🚨 [SNIPER LOCK] Another instance of LighterNewsSniper is already running (port 49201 bound). Exiting to prevent duplicate positions.")
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(description="Lighter News & Manual Catalyst Sniper Bot")
     parser.add_argument("--live", action="store_true", default=True, help="Live order execution (default; always on)")
     parser.add_argument("--margin-pct", type=float, default=85.0, help="Max collateral margin utilization percentage")
