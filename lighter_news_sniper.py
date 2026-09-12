@@ -137,7 +137,7 @@ class ActivePosition:
     ordered_size: float = 0.0
     exchange_tp: bool = False
     exchange_sl: bool = False
-    max_hold_seconds: float = 2700.0
+    max_hold_seconds: float = float(os.getenv("NEWS_MAX_HOLD_SECONDS", str(30 * 86400)))
     trail_arm_pct: float = 1.5
     trail_gap_pct: float = 1.0
     tp_client_index: int = 0
@@ -800,7 +800,10 @@ class MaxSizeExecutionEngine:
                     size = round(size, size_decimals)
 
         size_int = int(round(size * (10 ** size_decimals)))
-        price_int = int(round(price * (10 ** price_decimals)))
+        exec_price = price
+        if reduce_only:
+            exec_price = price * 0.985 if is_ask else price * 1.015
+        price_int = int(round(exec_price * (10 ** price_decimals)))
         if size_int <= 0:
             return None, f"size {size} rounds to 0 with {size_decimals} decimals"
         last_err = "order failed"
@@ -963,6 +966,7 @@ class MaxSizeExecutionEngine:
                         notional_usd=size * (entry if entry > 0 else mark),
                         tp_pct=policy.tp_pct or self.default_tp_pct or 2.5,
                         sl_pct=policy.sl_pct or 1.5,
+                        max_hold_seconds=policy.max_hold_seconds,
                         is_active=True,
                     )
                     self.ensure_exit_prices(pos)
@@ -973,6 +977,7 @@ class MaxSizeExecutionEngine:
                     )
                 else:
                     pos.size_eth = size
+                    pos.max_hold_seconds = max(pos.max_hold_seconds, policy.max_hold_seconds)
                     self.ensure_exit_prices(pos)
 
                 if open_n < 2 and self.is_live:
