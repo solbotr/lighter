@@ -134,13 +134,13 @@ class LighterNewsRiskGate:
         self.max_trade_usd = float(os.getenv("NEWS_MAX_TRADE_USD", "250"))
         self.max_spread_bps = float(os.getenv("NEWS_MAX_SPREAD_BPS", "100"))
         self.min_confidence = float(os.getenv("NEWS_MIN_CONFIDENCE", "0.70"))
-        self.confirmed_only = confirmed_only if confirmed_only is not None else (os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "true").lower() == "true")
+        self.confirmed_only = confirmed_only if confirmed_only is not None else (os.getenv("NEWS_AUTO_TRADE_CONFIRMED_ONLY", "false").lower() == "true")
         self.max_asset_usd = float(os.getenv("NEWS_MAX_ASSET_EXPOSURE_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_directional_usd = float(os.getenv("NEWS_MAX_DIRECTIONAL_USD", os.getenv("NEWS_MAX_EXPOSURE_USD", "1000")))
         self.max_daily_loss_usd = float(os.getenv("NEWS_MAX_DAILY_LOSS_USD", "200"))
         self.max_consecutive_losses = int(os.getenv("NEWS_MAX_CONSECUTIVE_LOSSES", "50"))
         self.max_session_trades = int(os.getenv("NEWS_MAX_SESSION_TRADES", "500"))
-        self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "900"))
+        self.cooldown_seconds = float(os.getenv("NEWS_ASSET_COOLDOWN_SECONDS", "60.0"))
         self.risk_per_trade_pct = float(os.getenv("NEWS_RISK_PER_TRADE_PCT", "1.0"))
         max_conc = int(os.getenv("NEWS_MAX_CONCURRENCY", "16"))
         self.max_open_positions = float("inf") if max_conc <= 0 else max_conc
@@ -366,16 +366,18 @@ class LighterNewsRiskGate:
             if self._daily_loss_usd >= self.max_daily_loss_usd:
                 reasons.append("daily loss breaker")
             last = self._last_asset_trade.get(symbol, 0.0)
-            is_open = (
-                has_open_position is True
-                or (has_open_position is None and self.has_open_position(symbol))
-                or bool(active_positions and any(
+            if active_positions is not None:
+                is_open = any(
                     (getattr(p, "asset", p.get("symbol", "") if isinstance(p, dict) else str(p)).upper() == symbol)
                     and getattr(p, "is_active", True)
                     and (abs(getattr(p, "notional_usd", 0.0)) >= 10.0 or abs(getattr(p, "size_eth", 0.0)) * getattr(p, "entry_price", 0.0) >= 10.0)
                     for p in (active_positions.values() if isinstance(active_positions, dict) else active_positions)
-                ))
-            )
+                )
+            elif has_open_position is not None:
+                is_open = bool(has_open_position)
+            else:
+                is_open = self.has_open_position(symbol)
+
             if symbol and (is_open or (time.time() - last < self.cooldown_seconds)):
                 reasons.append("duplicate news signal: active position or cooldown in effect")
             if open_count >= self.max_open_positions:

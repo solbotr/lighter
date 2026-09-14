@@ -992,6 +992,9 @@ class MaxSizeExecutionEngine:
 
                 if open_n < 2 and self.is_live:
                     asyncio.create_task(self.sync_position_orders(pos, open_n))
+            if hasattr(self, "news_risk_gate"):
+                live_symbols = {p.asset.upper() for p in self.active_positions.values() if p.is_active and getattr(p, "notional_usd", 0.0) >= 10.0}
+                self.news_risk_gate._open_positions = set(live_symbols)
         except Exception as e:
             logger.debug(f"Position adoption sync error: {e}")
         return prices
