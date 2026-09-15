@@ -126,8 +126,94 @@ def session_size_multiplier(symbol: str) -> float:
     return round(base_mult, 4)
 
 
+# =============================================================================
+# MACRO REGIME BETA GUARD
+# =============================================================================
+
+class MacroRegimeGuard:
+    """
+    Tracks benchmark asset momentum (BTC for crypto) over 15m and 1h rolling windows.
+    Vetoes counter-trend LONG positions on altcoins when BTC is dumping,
+    and counter-trend SHORT positions when BTC is surging,
+    unless the catalyst is Tier-1 high conviction (>= 0.90).
+    """
+
+    def __init__(self) -> None:
+        self._last_btc_poll: float = 0.0
+        self._btc_15m_pct: float = 0.0
+        self._btc_1h_pct: float = 0.0
+        self._btc_24h_pct: float = 0.0
+        self._btc_price: float = 0.0
+
+    def update_btc_price(self, price: float, change_15m: Optional[float] = None, change_1h: Optional[float] = None) -> None:
+        self._last_btc_poll = time.time()
+        if price > 0:
+            self._btc_price = price
+        if change_15m is not None:
+            self._btc_15m_pct = change_15m
+        if change_1h is not None:
+            self._btc_1h_pct = change_1h
+
+    def fetch_regime_sync(self) -> Dict[str, float]:
+        now = time.time()
+        if now - self._last_btc_poll < 15.0 and (self._btc_15m_pct != 0.0 or self._btc_1h_pct != 0.0):
+            return {"15m": self._btc_15m_pct, "1h": self._btc_1h_pct, "24h": self._btc_24h_pct}
+        self._last_btc_poll = now
+        try:
+            import urllib.request
+            url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=5"
+            req = urllib.request.Request(url, headers={"User-Agent": "LighterBot/1.0"})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if len(data) >= 2:
+                    curr = float(data[-1][4])
+                    open_15m = float(data[-1][1])
+                    open_1h = float(data[0][1])
+                    self._btc_price = curr
+                    self._btc_15m_pct = (curr - open_15m) / open_15m * 100.0 if open_15m else 0.0
+                    self._btc_1h_pct = (curr - open_1h) / open_1h * 100.0 if open_1h else 0.0
+        except Exception:
+            pass
+        return {"15m": self._btc_15m_pct, "1h": self._btc_1h_pct, "24h": self._btc_24h_pct}
+
+    def evaluate_regime(
+        self, asset: str, side: str, confidence: float = 0.0, catalyst_class: str = ""
+    ) -> Tuple[bool, str]:
+        sym = (asset or "").upper()
+        # BTC itself is the benchmark; only gate altcoins
+        if sym in {"BTC", "XAU", "XAG", "WTI", "EURUSD", "GBPUSD", "USDJPY"}:
+            return True, ""
+
+        # Tier-1 catalysts or extreme conviction (>= 0.90) bypass the macro regime guard
+        bypass_conviction = float(os.getenv("MACRO_BYPASS_CONVICTION", "0.90"))
+        if confidence >= bypass_conviction or catalyst_class in {"TIER1", "TIER_1_LISTING", "FDA_APPROVAL", "MEGA_CATALYST"}:
+            return True, ""
+
+        regime = self.fetch_regime_sync()
+        m15 = regime.get("15m", 0.0)
+        h1 = regime.get("1h", 0.0)
+
+        is_buy = side.startswith(("BUY", "LONG"))
+        is_sell = side.startswith(("SELL", "SHORT"))
+
+        dump_thresh_15m = float(os.getenv("MACRO_DUMP_THRESH_15M", "-0.40"))
+        dump_thresh_1h = float(os.getenv("MACRO_DUMP_THRESH_1H", "-0.80"))
+
+        if is_buy and (m15 <= dump_thresh_15m or h1 <= dump_thresh_1h):
+            return False, f"macro regime veto: BTC is dumping ({m15:+.2f}% 15m, {h1:+.2f}% 1h), blocking counter-trend altcoin LONG on {sym}"
+
+        pump_thresh_15m = float(os.getenv("MACRO_PUMP_THRESH_15M", "0.60"))
+        pump_thresh_1h = float(os.getenv("MACRO_PUMP_THRESH_1H", "1.20"))
+
+        if is_sell and (m15 >= pump_thresh_15m or h1 >= pump_thresh_1h):
+            return False, f"macro regime veto: BTC is surging ({m15:+.2f}% 15m, {h1:+.2f}% 1h), blocking counter-trend altcoin SHORT on {sym}"
+
+        return True, ""
+
+
 class LighterNewsRiskGate:
     def __init__(self, live: bool = True, confirmed_only: Optional[bool] = None) -> None:
+        self.macro_guard = MacroRegimeGuard()
         self.live = live
         self.execution_live = live_execution_allowed(live)
         self.max_exposure_usd = float(os.getenv("NEWS_MAX_EXPOSURE_USD", "1000"))
@@ -335,6 +421,20 @@ class LighterNewsRiskGate:
             reasons.append("trade size exceeds news risk cap")
         symbol = (asset or (snapshot.asset if snapshot else "")).upper()
         direction = "long" if side.startswith("BUY") else "short" if side.startswith("SELL") else "flat"
+        # Macro Regime Beta Guard: block counter-trend altcoins when BTC is dumping or pumping
+        if (
+            not manual
+            and os.getenv("NEWS_ENABLE_MACRO_GUARD", "1").lower() in {"1", "true", "yes"}
+            and getattr(self, "macro_guard", None) is not None
+        ):
+            regime_ok, regime_reason = self.macro_guard.evaluate_regime(
+                symbol,
+                side,
+                confidence=float(getattr(event, "confidence", 0.0) or 0.0),
+                catalyst_class=str(getattr(event, "catalyst_type", "") or "")
+            )
+            if not regime_ok:
+                reasons.append(regime_reason)
         async with self._lock:
             open_notional_total = 0.0
             open_notional_by_asset: Dict[str, float] = {}

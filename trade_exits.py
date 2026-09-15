@@ -84,17 +84,20 @@ def policy_for(
 
     # 1. Base Asset Category Default Policy
     # Inverted Asymmetric SL/TP Ratio: Tighten baseline SL from -1.50% to -0.85% (equities -0.75%)
+    # Fast Breakeven Protection: Arm trailing stop at +1.20% (crypto) and +0.70% (equities) to lock in BE (+0.1%) early
     env_sl = float(os.getenv("NEWS_STOP_LOSS_PCT", "0")) if os.getenv("NEWS_STOP_LOSS_PCT") else None
+    env_arm = float(os.getenv("NEWS_TRAIL_ARM_PCT", "0")) if os.getenv("NEWS_TRAIL_ARM_PCT") else None
+    env_gap = float(os.getenv("NEWS_TRAIL_GAP_PCT", "0")) if os.getenv("NEWS_TRAIL_GAP_PCT") else None
     if sym in FX:
-        base = ExitPolicy(0.40, env_sl or 0.30, 0.25, 0.15, max_hold_sec, 25)
+        base = ExitPolicy(0.40, env_sl or 0.30, env_arm or 0.25, env_gap or 0.15, max_hold_sec, 25)
     elif sym in INDEX:
-        base = ExitPolicy(1.20, env_sl or 0.75, 0.80, 0.50, max_hold_sec, 40)
+        base = ExitPolicy(1.20, env_sl or 0.75, env_arm or 0.80, env_gap or 0.50, max_hold_sec, 40)
     elif sym in COMMODITY:
-        base = ExitPolicy(2.00, env_sl or 0.95, 1.20, 0.80, max_hold_sec, 50)
+        base = ExitPolicy(2.00, env_sl or 0.95, env_arm or 1.20, env_gap or 0.80, max_hold_sec, 50)
     elif sym in CRYPTO:
-        base = ExitPolicy(2.00, env_sl or 0.85, 2.00, 1.00, max_hold_sec, 80)
+        base = ExitPolicy(2.00, env_sl or 0.85, env_arm or 2.00, env_gap or 1.00, max_hold_sec, 80)
     else:
-        base = ExitPolicy(1.50, env_sl or 0.75, 1.00, 0.60, max_hold_sec, 60)
+        base = ExitPolicy(1.50, env_sl or 0.75, env_arm or 1.00, env_gap or 0.60, max_hold_sec, 60)
 
     # 2. News Catalyst Classification & Tailored TP/SL Multipliers
     tp = override_tp if override_tp is not None else base.tp_pct
