@@ -2855,12 +2855,14 @@ class LighterNewsSniperBot:
                     size = float(item.get("size") or 0)
                     if not symbol or size <= 0:
                         continue
+                    sign = int(item.get("sign") or (1 if str(item.get("side", "")).upper().startswith(("BUY", "LONG")) else -1))
+                    side = "BUY/LONG" if sign == 1 else "SELL/SHORT"
                     mark = prices.get(symbol) or float(item.get("entry_price") or 0) or self.current_market_price
                     dummy = ActivePosition(
                         position_id=f"kill_{symbol}",
                         asset=symbol,
                         market_index=int(item.get("market_index") or 0),
-                        side=item.get("side") or "BUY/LONG",
+                        side=side,
                         entry_price=float(item.get("entry_price") or mark or 0),
                         size_eth=size,
                         notional_usd=size * float(mark or 1),
