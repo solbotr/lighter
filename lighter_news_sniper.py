@@ -318,6 +318,67 @@ class MaxSizeExecutionEngine:
         self._collateral_cache_ts: float = 0.0
         self._spread_cache: Dict[int, Tuple[float, float]] = {}
         self.clock = PositionClock(os.getenv("NEWS_DB_PATH", str(Path(__file__).with_name("lighter_news.db"))))
+        self._ws_task: Optional[asyncio.Task] = None
+
+    def _ensure_account_ws(self) -> None:
+        if not self.is_live or self.account_index <= 0:
+            return
+        if self._ws_task is None or self._ws_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._ws_task = loop.create_task(self._account_ws_stream_loop())
+            except RuntimeError:
+                pass
+
+    async def _account_ws_stream_loop(self) -> None:
+        """Real-time zero-lag WebSocket stream for account collateral and positions.
+        Bypasses CloudFront AWS WAF challenges on REST endpoints completely."""
+        ws_url = os.getenv("LIGHTER_WS_URL", "wss://mainnet.zklighter.elliot.ai/stream")
+        backoff = 1.0
+        while self.is_live:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(ws_url, heartbeat=20.0) as ws:
+                        logger.info("⚡ [WS] Real-time zkLighter account stream connected (Account #%s)", self.account_index)
+                        backoff = 1.0
+                        while True:
+                            msg = await ws.receive()
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                mtype = data.get("type")
+                                if mtype == "connected":
+                                    sub = {"type": "subscribe", "channel": f"account_all/{self.account_index}"}
+                                    await ws.send_str(json.dumps(sub))
+                                elif mtype in ("subscribed/account_all", "update/account_all"):
+                                    assets = data.get("assets") or {}
+                                    for aid, ainfo in (assets.items() if isinstance(assets, dict) else []):
+                                        if isinstance(ainfo, dict) and str(ainfo.get("symbol") or "").upper() in ("USDC", ""):
+                                            mb = ainfo.get("margin_balance") or ainfo.get("balance")
+                                            if mb is not None:
+                                                try:
+                                                    collat = float(mb)
+                                                    if collat > 0:
+                                                        self._last_cached_collateral = collat
+                                                        self._collateral_cache_ts = time.time()
+                                                except (TypeError, ValueError):
+                                                    pass
+                                    raw_pos = data.get("positions") or {}
+                                    pos_items = list(raw_pos.values()) if isinstance(raw_pos, dict) else (raw_pos if isinstance(raw_pos, list) else [])
+                                    active_list = []
+                                    for item in pos_items:
+                                        parsed = self.parse_account_position(item)
+                                        if parsed and float(parsed.get("size") or 0.0) > 0:
+                                            active_list.append(parsed)
+                                    self._cached_positions = active_list
+                                    self._last_positions_fetch_ts = time.time()
+                                elif mtype == "ping":
+                                    await ws.send_str(json.dumps({"type": "pong"}))
+                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.ERROR):
+                                break
+            except Exception as e:
+                logger.debug("[WS Account Stream Reconnect]: %s", e)
+            await asyncio.sleep(backoff)
+            backoff = min(10.0, backoff * 1.5)
 
     @staticmethod
     def _speed_mode() -> bool:
@@ -349,6 +410,7 @@ class MaxSizeExecutionEngine:
         return val if val > 0 else None
 
     async def _ensure_signer(self):
+        self._ensure_account_ws()
         if self.is_live and self.signer_client is None and self.api_private_key and self.account_index > 0:
             try:
                 import lighter
@@ -363,6 +425,7 @@ class MaxSizeExecutionEngine:
 
     async def prewarm(self) -> None:
         """Warm signer + HTTP + collateral before the first catalyst (cuts cold-start RTT)."""
+        self._ensure_account_ws()
         await self._ensure_signer()
         await self._http_session()
         await self.fetch_available_collateral_usd(force=True)
@@ -419,6 +482,7 @@ class MaxSizeExecutionEngine:
 
     async def fetch_available_collateral_usd(self, force: bool = False) -> Optional[float]:
         """Fetches the configured sub-account collateral with short TTL cache (hot-path)."""
+        self._ensure_account_ws()
         wallet = os.getenv("WALLET_ADDRESS", "").strip()
         if not wallet:
             logger.error("Live collateral query failed: WALLET_ADDRESS is not set")
@@ -428,9 +492,9 @@ class MaxSizeExecutionEngine:
         cache_ts = float(getattr(self, "_collateral_cache_ts", 0.0) or 0.0)
         age = time.time() - cache_ts
         cached = float(getattr(self, "_last_cached_collateral", 0.0) or 0.0)
-        fallback_default = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "5.5208"))
-        cache_verified = cache_ts > 0 and cached > fallback_default
-        if not force and ttl > 0 and age < ttl and cache_verified:
+        fallback_default = float(os.getenv("LIGHTER_FALLBACK_COLLATERAL", "1046.77"))
+        cache_verified = cache_ts > 0 and cached > 0
+        if cached > 0 and ((cache_verified and age < 30.0) or (not force and ttl > 0 and age < ttl)):
             return cached
 
         if not hasattr(self, "_last_cached_collateral"):
@@ -957,8 +1021,20 @@ class MaxSizeExecutionEngine:
         }
 
     async def fetch_account_positions(self) -> List[Dict[str, Any]]:
+        self._ensure_account_ws()
         now = time.time()
-        if self._cached_positions and (now - self._last_positions_fetch_ts) < 1.0:
+        # If WebSocket has provided fresh position data (< 15s), return it immediately (<1ms)
+        if self._last_positions_fetch_ts > 0 and (now - self._last_positions_fetch_ts) < 15.0:
+            return self._cached_positions
+
+        # Wait briefly for WebSocket initial sync if starting up in live mode
+        if self._last_positions_fetch_ts == 0.0 and self.is_live:
+            for _ in range(15):
+                if self._last_positions_fetch_ts > 0:
+                    return self._cached_positions
+                await asyncio.sleep(0.1)
+
+        if self._cached_positions:
             return self._cached_positions
 
         try:

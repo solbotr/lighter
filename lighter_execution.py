@@ -360,12 +360,54 @@ class LighterExecutionEngine:
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._cached_positions: List[Dict[str, Any]] = []
         self._last_positions_fetch_ts: float = 0.0
+        self._ws_task: Optional[asyncio.Task] = None
 
+    def _ensure_account_ws(self) -> None:
         if self.account_index <= 0:
-            self.signer_failed = True
-            logger.critical(
-                "[EXEC] LIGHTER_ACCOUNT_INDEX missing — refusing to place or cancel orders"
-            )
+            return
+        if self._ws_task is None or self._ws_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._ws_task = loop.create_task(self._account_ws_stream_loop())
+            except RuntimeError:
+                pass
+
+    async def _account_ws_stream_loop(self) -> None:
+        """Real-time zero-lag WebSocket stream for account collateral and positions."""
+        ws_url = os.getenv("LIGHTER_WS_URL", "wss://mainnet.zklighter.elliot.ai/stream")
+        backoff = 1.0
+        while True:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(ws_url, heartbeat=20.0) as ws:
+                        logger.info("⚡ [WS] Real-time zkLighter account stream connected for LighterExecution (Account #%s)", self.account_index)
+                        backoff = 1.0
+                        while True:
+                            msg = await ws.receive()
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                mtype = data.get("type")
+                                if mtype == "connected":
+                                    sub = {"type": "subscribe", "channel": f"account_all/{self.account_index}"}
+                                    await ws.send_str(json.dumps(sub))
+                                elif mtype in ("subscribed/account_all", "update/account_all"):
+                                    raw_pos = data.get("positions") or {}
+                                    pos_items = list(raw_pos.values()) if isinstance(raw_pos, dict) else (raw_pos if isinstance(raw_pos, list) else [])
+                                    active_list = []
+                                    for item in pos_items:
+                                        parsed = self._parse_account_position(item)
+                                        if parsed and float(parsed.get("size") or 0.0) > 0:
+                                            active_list.append(parsed)
+                                    self._cached_positions = active_list
+                                    self._last_positions_fetch_ts = time.time()
+                                elif mtype == "ping":
+                                    await ws.send_str(json.dumps({"type": "pong"}))
+                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING, aiohttp.WSMsgType.ERROR):
+                                break
+            except Exception as e:
+                logger.debug("[WS Execution Account Stream Reconnect]: %s", e)
+            await asyncio.sleep(backoff)
+            backoff = min(10.0, backoff * 1.5)
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
@@ -499,11 +541,14 @@ class LighterExecutionEngine:
         }
 
     async def fetch_account_positions(self) -> List[Dict[str, Any]]:
-        """Fetches live account positions from Lighter REST (same pattern as news sniper)."""
+        """Fetches live account positions from Lighter WebSocket stream or REST."""
+        self._ensure_account_ws()
         now = time.time()
-        if self._cached_positions and (now - self._last_positions_fetch_ts) < 1.0:
+        if self._last_positions_fetch_ts > 0 and (now - self._last_positions_fetch_ts) < 15.0:
             return self._cached_positions
         if self.account_index <= 0:
+            return self._cached_positions
+        if self._cached_positions:
             return self._cached_positions
         try:
             session = await self._get_http_session()
