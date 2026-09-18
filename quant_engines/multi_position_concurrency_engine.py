@@ -92,12 +92,12 @@ class MultiPositionConcurrencyEngine:
     ):
         import os
         if max_concurrent_positions is None:
-            max_concurrent_positions = int(os.getenv("NEWS_MAX_CONCURRENCY", "16") or "16")
-            if max_concurrent_positions <= 0:
-                max_concurrent_positions = 16
+            raw_conc = int(os.getenv("NEWS_MAX_CONCURRENCY", "0") or "0")
+            max_concurrent_positions = 9999 if raw_conc <= 0 else raw_conc
         self.max_concurrent_positions = max_concurrent_positions
         self.max_total_margin_pct = float(os.getenv("NEWS_MAX_MARGIN_PCT", str(max_total_margin_pct)))
-        self.max_sector_positions = int(os.getenv("NEWS_MAX_SECTOR_POSITIONS", str(max_sector_positions)))
+        sec_pos = int(os.getenv("NEWS_MAX_SECTOR_POSITIONS", str(max_sector_positions)))
+        self.max_sector_positions = 9999 if sec_pos <= 0 else sec_pos
         self.base_leverage = float(os.getenv("NEWS_BASE_LEVERAGE", str(base_leverage)))
         self.active_slots: Dict[str, ActivePositionSlot] = {}
 
