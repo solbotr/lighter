@@ -379,10 +379,10 @@ class MaxSizeExecutionEngine:
                 ttl_dns_cache=300,
                 happy_eyeballs_delay=0.05,
             )
-            # Aggressive timeouts on the money path
-            total = 3.0 if self._speed_mode() else 6.0
-            connect = 1.0 if self._speed_mode() else 2.0
-            sock_read = 2.0 if self._speed_mode() else 4.0
+            # Fast, resilient timeouts on the money path
+            total = 8.0 if self._speed_mode() else 15.0
+            connect = 3.0 if self._speed_mode() else 5.0
+            sock_read = 6.0 if self._speed_mode() else 10.0
             self._http = aiohttp.ClientSession(
                 connector=connector,
                 timeout=aiohttp.ClientTimeout(total=total, connect=connect, sock_read=sock_read),
@@ -637,7 +637,65 @@ class MaxSizeExecutionEngine:
         # Tier-3: Order Catalog
         books = await self.fetch_order_catalog()
         snapshots = self.snapshots_from_catalog(books, [(asset, market_index)])
-        return snapshots.get(asset.upper())
+        snap = snapshots.get(asset.upper())
+        if snap and snap.price > 0:
+            return snap
+
+        # Tier-4: Hyperliquid / Binance Cross-Exchange Benchmark Price (Never WAF-blocked)
+        sym = asset.upper()
+        try:
+            session = await self._http_session()
+            hl_payload = json.dumps({"type": "allMids"}).encode("utf-8")
+            async with session.post(
+                "https://api.hyperliquid.xyz/info",
+                data=hl_payload,
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                if resp.status == 200:
+                    mids = await resp.json(content_type=None)
+                    hl_price = float(mids.get(sym) or 0.0)
+                    if hl_price > 0:
+                        s = MarketSnapshot(
+                            asset=sym,
+                            price=hl_price,
+                            spread_bps=5.0,
+                            timestamp=time.time(),
+                            market_index=market_index,
+                        )
+                        meta = self._meta(asset)
+                        s.size_decimals = meta.get("size_decimals", 4)
+                        s.price_decimals = meta.get("price_decimals", 2)
+                        return s
+        except Exception:
+            pass
+
+        try:
+            session = await self._http_session()
+            binance_sym = f"{sym}USDT"
+            async with session.get(
+                f"https://api.binance.com/api/v3/ticker/price?symbol={binance_sym}",
+                timeout=aiohttp.ClientTimeout(total=3.0),
+            ) as resp:
+                if resp.status == 200:
+                    b_data = await resp.json(content_type=None)
+                    b_price = float(b_data.get("price") or 0.0)
+                    if b_price > 0:
+                        s = MarketSnapshot(
+                            asset=sym,
+                            price=b_price,
+                            spread_bps=5.0,
+                            timestamp=time.time(),
+                            market_index=market_index,
+                        )
+                        meta = self._meta(asset)
+                        s.size_decimals = meta.get("size_decimals", 4)
+                        s.price_decimals = meta.get("price_decimals", 2)
+                        return s
+        except Exception:
+            pass
+
+        return None
 
     async def fetch_orderbook_depth(self, market_index: int) -> MicrostructureDepthBook:
         """Fetches live L2 depth orderbook from Lighter API and updates in-memory engine."""
@@ -3245,19 +3303,47 @@ class LighterNewsSniperBot:
             await self.news_risk_gate.release(decision.reservation_id, market.symbol, side)
 
     async def _price_loop(self):
+        PRIMARY_SYMBOLS = {"BTC", "ETH", "SOL", "HYPE", "DOGE", "XRP", "LINK", "AVAX", "BNB", "NVDA", "AAPL", "TSLA", "MSFT", "WTI", "XAU"}
+        sec_idx = 0
         while True:
             try:
                 books = await self.executor.fetch_order_catalog()
                 self.markets.ingest_catalog(books)
-                markets = list(self.markets.enabled())
-                semaphore = asyncio.Semaphore(20)
+                all_markets = list(self.markets.enabled())
+
+                # Active symbols: primary assets + any symbol with an active position
+                active_symbols = set(PRIMARY_SYMBOLS)
+                if hasattr(self.executor, "active_positions") and self.executor.active_positions:
+                    for p in self.executor.active_positions.values():
+                        sym = str(getattr(p, "asset", "") or getattr(p, "symbol", "") or "").upper()
+                        if sym:
+                            active_symbols.add(sym)
+
+                # Prioritize active/primary markets first
+                priority_markets = [m for m in all_markets if m.symbol in active_symbols]
+                other_markets = [m for m in all_markets if m.symbol not in active_symbols]
+
+                # Pick a slice of 10 other markets per cycle to rotate through the full universe
+                slice_size = 10
+                if other_markets:
+                    slice_start = sec_idx % len(other_markets)
+                    batch_others = other_markets[slice_start:slice_start + slice_size]
+                    sec_idx += slice_size
+                else:
+                    batch_others = []
+
+                cycle_markets = priority_markets + batch_others
+                semaphore = asyncio.Semaphore(8)
 
                 async def refresh(market):
                     async with semaphore:
-                        return await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
+                        try:
+                            return await self.executor.fetch_market_snapshot(market.symbol, market.market_index)
+                        except Exception:
+                            return None
 
-                snapshots = await asyncio.gather(*(refresh(market) for market in markets), return_exceptions=True)
-                for market, snapshot in zip(markets, snapshots):
+                snapshots = await asyncio.gather(*(refresh(market) for market in cycle_markets), return_exceptions=True)
+                for market, snapshot in zip(cycle_markets, snapshots):
                     if isinstance(snapshot, Exception) or snapshot is None or snapshot.price <= 0:
                         continue
                     self.tickers.update(snapshot)
