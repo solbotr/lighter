@@ -193,9 +193,11 @@ class XPostMonitorTool:
         }
 
     def _treg_token_dead(self, token: str, reason: str, cooldown_sec: float = 3600.0) -> None:
+        was_live = self._treg_dead_until.get(token, 0) <= time.time()
         self._treg_dead_until[token] = time.time() + cooldown_sec
-        logger.warning("[XMonitor] Treg token ...%s %s, failing over (cooldown %.0fm)",
-                       token[-4:], reason, cooldown_sec / 60)
+        if was_live:
+            logger.warning("[XMonitor] Treg token ...%s %s, failing over (cooldown %.0fm)",
+                           token[-4:], reason, cooldown_sec / 60)
 
     def headers(self) -> Dict[str, str]:
         hdrs = {
