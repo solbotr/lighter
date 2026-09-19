@@ -73,8 +73,8 @@ class ToxicLeadEvent:
 @dataclass
 class AntiToxicGuardConfig:
     """Configuration for Anti-Toxic MM Guard."""
-    velocity_threshold_pct: float = 0.0020  # 0.20% (20 bps)
-    velocity_window_ms: float = 100.0       # 100ms lookback window
+    velocity_threshold_pct: float = float(os.getenv("TOXICITY_THRESHOLD", "0.0015"))  # 0.15% (15 bps) or 0.62 sensitivity factor
+    velocity_window_ms: float = float(os.getenv("PRICE_VELOCITY_WINDOW_MS", "80.0"))     # 80ms lookback window
     cooldown_duration_sec: float = 30.0     # 30s quoting pause
     min_news_trust_score: float = 0.65      # Minimum trust score for TreeNews triggers
     max_history_ticks: int = 1000           # Ticks retained per asset in ring buffer

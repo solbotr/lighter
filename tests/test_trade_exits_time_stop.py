@@ -6,6 +6,9 @@ from trade_exits import policy_for, time_stop_seconds
 def _clear_hold_overrides(monkeypatch):
     monkeypatch.delenv("NEWS_MAX_HOLD_DAYS", raising=False)
     monkeypatch.delenv("NEWS_MAX_HOLD_MINUTES", raising=False)
+    monkeypatch.delenv("NEWS_STOP_LOSS_PCT", raising=False)
+    monkeypatch.delenv("NEWS_TRAIL_ARM_PCT", raising=False)
+    monkeypatch.delenv("NEWS_TRAIL_GAP_PCT", raising=False)
 
 
 @pytest.mark.parametrize(

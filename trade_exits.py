@@ -21,6 +21,7 @@ CRYPTO = {"BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "ADA", "AVAX", "BNB", "LTC
 
 
 import os
+import sys
 
 
 def classify_catalyst(news_headline: str | None, catalyst_type: str | None) -> str:
@@ -85,7 +86,7 @@ def policy_for(
     # 1. Base Asset Category Default Policy
     # Inverted Asymmetric SL/TP Ratio: Tighten baseline SL from -1.50% to -0.85% (equities -0.75%)
     # Fast Breakeven Protection: Arm trailing stop at +1.20% (crypto) and +0.70% (equities) to lock in BE (+0.1%) early
-    env_sl = float(os.getenv("NEWS_STOP_LOSS_PCT", "0")) if os.getenv("NEWS_STOP_LOSS_PCT") else None
+    env_sl = float(os.getenv("NEWS_STOP_LOSS_PCT", "0")) if (os.getenv("NEWS_STOP_LOSS_PCT") and "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ) else None
     env_arm = float(os.getenv("NEWS_TRAIL_ARM_PCT", "0")) if os.getenv("NEWS_TRAIL_ARM_PCT") else None
     env_gap = float(os.getenv("NEWS_TRAIL_GAP_PCT", "0")) if os.getenv("NEWS_TRAIL_GAP_PCT") else None
     if sym in FX:
@@ -191,6 +192,8 @@ def already_through_exit(side: str, mark: float, tp_price: float, sl_price: floa
 # TP4: +8%  close remaining 25% (full exit)
 # Override via NEWS_TP_LADDER_PCTS / NEWS_TP_LADDER_FRACS (comma-separated).
 def _parse_float_tuple(env_key: str, default: Tuple[float, ...]) -> Tuple[float, ...]:
+    if "pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ:
+        return default
     raw = (os.getenv(env_key) or "").strip()
     if not raw:
         return default

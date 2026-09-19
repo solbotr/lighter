@@ -82,4 +82,6 @@ base-sniper-repo/
 laptop-repo/
 repo_laptop/
 client_order_ids.json
+*.pid
+signal_discovery.jsonl
 

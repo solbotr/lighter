@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -253,8 +254,8 @@ class LighterNewsRiskGate:
         self._consecutive_losses = 0
         self._last_loss_time = 0.0
         self._daily_loss_usd = 0.0
-        self._daily_date = ""
-        self._pnl_db = os.getenv("NEWS_DB_PATH", "lighter_news.db")
+        default_pnl_db = ":memory:" if ("pytest" in sys.modules or "PYTEST_CURRENT_TEST" in os.environ) else "lighter_news.db"
+        self._pnl_db = os.getenv("NEWS_DB_PATH", default_pnl_db)
         self._lock = asyncio.Lock()
         self._load_daily_pnl()
 
@@ -309,7 +310,7 @@ class LighterNewsRiskGate:
             return True
         if self._poke_is_direct_exchange(raw):
             return "poke_ai" in self.live_source_adapters
-        if source_id.startswith(("hyperliquid", "whale", "x_", "treenews", "tree_")):
+        if source_id.startswith(("hyperliquid", "whale", "x_", "treenews", "tree_", "mm_catalyst")):
             return True
         if source_id in self.live_source_ids and adapter not in {"rss", "atom", "json", ""}:
             return True

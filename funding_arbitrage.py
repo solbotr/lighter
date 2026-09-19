@@ -239,7 +239,11 @@ class DeltaNeutralArbPosition:
 @dataclass
 class FundingArbitrageConfig:
     """Operational parameters for Funding Rate Harvester."""
-    min_entry_spread_apr: float = 0.30       # 30.0% APR minimum entry threshold
+    min_entry_spread_apr: float = (
+        float(os.getenv("MIN_FUNDING_SPREAD_APR", "15.0")) / 100.0
+        if os.getenv("MIN_FUNDING_SPREAD_APR")
+        else 0.15
+    )  # 15.0% APR minimum entry threshold (lowered from 30%)
     unwind_spread_apr: float = 0.05          # 5.0% APR convergence unwind threshold
     min_notional_usd: float = 100.0          # Minimum trade size
     max_notional_usd: float = 50000.0        # Maximum position cap

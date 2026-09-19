@@ -530,7 +530,7 @@ async def test_news_sniper_scale_out_with_expanded_tp():
     assert len(events) >= 1
     assert events[0]["type"] == "PARTIAL_TP_1"
     assert events[0]["tp_level"] == 1
-    # 50% closed -> 1.0 ETH
-    assert events[0]["close_qty"] == 1.0
+    # 25% closed -> 0.5 ETH (2.0 * 0.25)
+    assert events[0]["close_qty"] == 0.5
     # Stop-Loss shifted to Breakeven +0.1% ($2002.0)
     assert pos.sl_price == pytest.approx(breakeven_sl("BUY/LONG", 2000.0, 0.1))

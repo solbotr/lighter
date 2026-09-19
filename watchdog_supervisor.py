@@ -65,6 +65,14 @@ def _build_managed_processes() -> list[ManagedProcess]:
             os.path.join(LOG_DIR, "mm_bot.pid"),
             os.path.join(LOG_DIR, "mm_app.log"),
         ))
+    if _truthy(os.getenv("FUNDING_ARB_SUPERVISED", "0")):
+        processes.append(ManagedProcess(
+            "funding_arb",
+            os.path.join(LOG_DIR, "funding_arbitrage.py"),
+            shlex.split(os.getenv("FUNDING_ARB_ARGS", ""), posix=os.name != "nt"),
+            os.path.join(LOG_DIR, "funding_arb.pid"),
+            os.path.join(LOG_DIR, "funding_arb.log"),
+        ))
     return processes
 
 
